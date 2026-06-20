@@ -12,3 +12,35 @@
 - Implementing project indexing and search functionality
 - Implementing skills for the coding agent to understand different programming languages and frameworks
 - Implementing support for agent.md files to define agent behavior and capabilities
+
+
+
+-----TOOLS TO BE IMPLEMENTED-----
+File System
+✅ Read File
+✅ Write File
+✅ Edit File
+✅ Multi Edit File
+✅ Create File
+✅ List Directory
+Search
+✅ Find Files
+✅ Grep
+✅ Scan Project
+Shell
+✅ Run Command
+Development
+✅ Build Project
+✅ Run Tests
+✅ Run Linter
+Git
+✅ Git Status
+✅ Git Diff
+Web
+✅ Web Search
+✅ Fetch URL
+✅ Search Documentation
+Planning
+✅ Create Implementation Plan
+Utilities
+✅ Apply Patch

@@ -1,17 +1,19 @@
 from functools import lru_cache
+from typing import Literal
 from pydantic import BaseModel
 
 
 class ModelConfig(BaseModel):
     """Configuration for the model."""
-    model_name: str = "gemini-2.5-flash-lite"
-    base_url: str = "https://api.openai.com/v1"
+    model_provider: Literal["google", "openai", "local"] = "google" 
+    model_name: str = "gemma-3-31b-it"
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     api_key: str = "your-api-key-here"
 
 class Config(BaseModel):
     """Configuration for the application."""
     planner_model: ModelConfig = ModelConfig(
-        model_name="gemini-2.5-flash-lite",
+        model_name="gemma-3-31b-it",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key="your-api-key-here"
     ) # Model configuration for the planner
@@ -33,10 +35,12 @@ def load_config() -> Config:
     from dotenv import load_dotenv
     load_dotenv()
 
-    planner_model_name = os.getenv("PLANNER_MODEL_NAME", "gemini-3.1-flash-lite")
+    planner_model_provider = os.getenv("PLANNER_MODEL_PROVIDER", "google")
+    planner_model_name = os.getenv("PLANNER_MODEL_NAME", "gemma-3-31b-it")
     planner_base_url = os.getenv("PLANNER_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
     planner_api_key = os.getenv("PLANNER_API_KEY", "your-api-key-here")
 
+    executor_model_provider = os.getenv("EXECUTOR_MODEL_PROVIDER", "google")
     executor_model_name = os.getenv("EXECUTOR_MODEL_NAME", "gemma-3-27b-it")
     executor_base_url = os.getenv("EXECUTOR_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
     executor_api_key = os.getenv("EXECUTOR_API_KEY", "your-api-key-here")
@@ -46,11 +50,13 @@ def load_config() -> Config:
 
     config =  Config(
         planner_model=ModelConfig(
+            model_provider=planner_model_provider,  # type: ignore
             model_name=planner_model_name,
             base_url=planner_base_url,
             api_key=planner_api_key
         ),
         executor_model=ModelConfig(
+            model_provider=executor_model_provider,  # type: ignore
             model_name=executor_model_name,
             base_url=executor_base_url,
             api_key=executor_api_key
