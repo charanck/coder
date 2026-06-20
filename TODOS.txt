@@ -1,0 +1,14 @@
+- Implemnting using ADK in golang
+- Implment claude code like coding agent with the below features:
+  - Code generation
+  - Code explanation
+  - Code refactoring
+  - Code debugging
+  - Code optimization
+  - Code review
+  - Code testing
+  - Code documentation
+- Implementing a TUI for user interaction with the coding agent
+- Implementing project indexing and search functionality
+- Implementing skills for the coding agent to understand different programming languages and frameworks
+- Implementing support for agent.md files to define agent behavior and capabilities
