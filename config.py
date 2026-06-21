@@ -10,6 +10,14 @@ class ModelConfig(BaseModel):
     base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     api_key: str = "your-api-key-here"
 
+
+class LangfuseConfig(BaseModel):
+    """Configuration for Langfuse tracing."""
+    enabled: bool = False
+    public_key: str = ""
+    secret_key: str = ""
+    base_url: str = "http://localhost:3000"
+
 class Config(BaseModel):
     """Configuration for the application."""
     planner_model: ModelConfig = ModelConfig(
@@ -22,6 +30,7 @@ class Config(BaseModel):
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key="your-api-key-here"
     ) # Model configuration for the executor
+    langfuse: LangfuseConfig = LangfuseConfig()
     planner_timeout: int = 60 * 5  # Timeout for planner in seconds
     executor_timeout: int = 60 * 10  # Timeout for executor in seconds
 
@@ -45,6 +54,11 @@ def load_config() -> Config:
     executor_base_url = os.getenv("EXECUTOR_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
     executor_api_key = os.getenv("EXECUTOR_API_KEY", "your-api-key-here")
 
+    langfuse_enabled = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+    langfuse_public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+    langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY", "")
+    langfuse_base_url = os.getenv("LANGFUSE_BASE_URL", "http://localhost:3000")
+
     planner_timeout = int(os.getenv("PLANNER_TIMEOUT", 60 * 5))
     executor_timeout = int(os.getenv("EXECUTOR_TIMEOUT", 60 * 10))
 
@@ -61,10 +75,23 @@ def load_config() -> Config:
             base_url=executor_base_url,
             api_key=executor_api_key
         ),
+        langfuse=LangfuseConfig(
+            enabled=langfuse_enabled,
+            public_key=langfuse_public_key,
+            secret_key=langfuse_secret_key,
+            base_url=langfuse_base_url,
+        ),
         planner_timeout=planner_timeout,
         executor_timeout=executor_timeout
     )
     print("Configuration loaded successfully.")
-    print(config)
+    print(
+        {
+            "planner_timeout": config.planner_timeout,
+            "executor_timeout": config.executor_timeout,
+            "langfuse_enabled": config.langfuse.enabled,
+            "langfuse_base_url": config.langfuse.base_url,
+        }
+    )
     return config
 
