@@ -32,6 +32,9 @@ class Config(BaseModel):
     ) # Model configuration for the executor
     langfuse: LangfuseConfig = LangfuseConfig()
     planner_timeout: int = 60 * 5  # Timeout for planner in seconds
+    planner_step_timeout: int = 60  # Per-step timeout for the planner agent in seconds
+    planner_agent_timeout: int = 60 * 2  # Total timeout for the planner agent in seconds
+    planner_tool_call_limit: int = 20  # Maximum number of tool calls allowed per planner run
     executor_timeout: int = 60 * 10  # Timeout for executor in seconds
 
 
@@ -59,7 +62,10 @@ def load_config() -> Config:
     langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY", "")
     langfuse_base_url = os.getenv("LANGFUSE_BASE_URL", "http://localhost:3000")
 
-    planner_timeout = int(os.getenv("PLANNER_TIMEOUT", 60 * 5))
+    planner_timeout = int(os.getenv("PLANNER_TIMEOUT", 60 * 10))
+    planner_step_timeout = int(os.getenv("PLANNER_STEP_TIMEOUT", 60 * 10))
+    planner_agent_timeout = int(os.getenv("PLANNER_AGENT_TIMEOUT", 60 * 10))
+    planner_tool_call_limit = int(os.getenv("PLANNER_TOOL_CALL_LIMIT", 200))
     executor_timeout = int(os.getenv("EXECUTOR_TIMEOUT", 60 * 10))
 
     config =  Config(
@@ -82,12 +88,18 @@ def load_config() -> Config:
             base_url=langfuse_base_url,
         ),
         planner_timeout=planner_timeout,
+        planner_step_timeout=planner_step_timeout,
+        planner_agent_timeout=planner_agent_timeout,
+        planner_tool_call_limit=planner_tool_call_limit,
         executor_timeout=executor_timeout
     )
     print("Configuration loaded successfully.")
     print(
         {
             "planner_timeout": config.planner_timeout,
+            "planner_step_timeout": config.planner_step_timeout,
+            "planner_agent_timeout": config.planner_agent_timeout,
+            "planner_tool_call_limit": config.planner_tool_call_limit,
             "executor_timeout": config.executor_timeout,
             "langfuse_enabled": config.langfuse.enabled,
             "langfuse_base_url": config.langfuse.base_url,

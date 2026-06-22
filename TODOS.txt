@@ -44,3 +44,8 @@ Planning
 ✅ Create Implementation Plan
 Utilities
 ✅ Apply Patch
+
+
+
+------TODOS:---------------
+- Port the langchain implementation to langgraph and implement the coding agent using langgraph

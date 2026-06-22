@@ -4,13 +4,6 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
-class Priority(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
 class Complexity(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
@@ -24,46 +17,32 @@ class RiskLevel(str, Enum):
 
 
 class Task(BaseModel):
-    id: int = Field(..., description="Sequential task number.")
+    id: int = Field(
+        description="Sequential task number starting from 1."
+    )
 
     title: str = Field(
-        ...,
-        description="Short title describing the task."
+        description="Short descriptive task title."
     )
 
     objective: str = Field(
-        ...,
         description="What this task accomplishes."
-    )
-
-    reasoning: str = Field(
-        ...,
-        description="Why this task is necessary."
     )
 
     implementation_notes: List[str] = Field(
         default_factory=list,
-        description="Important implementation considerations."
+        description="Important implementation details for the executor."
     )
 
     dependencies: List[int] = Field(
         default_factory=list,
-        description="Task IDs that must complete first."
+        description="IDs of prerequisite tasks."
     )
 
     affected_components: List[str] = Field(
         default_factory=list,
-        description="Files, modules, services or components likely to change."
+        description="Files, modules, services, packages or components likely to change."
     )
-
-    risks: List[str] = Field(
-        default_factory=list,
-        description="Potential issues while implementing this task."
-    )
-
-    priority: Priority = Priority.MEDIUM
-
-    complexity: Complexity = Complexity.MEDIUM
 
 
 class ValidationPlan(BaseModel):
@@ -77,24 +56,37 @@ class ValidationPlan(BaseModel):
 
 
 class ImplementationPlan(BaseModel):
-    goal: str
+    goal: str = Field(
+        description="Overall objective of the implementation."
+    )
 
-    strategy: str
+    strategy: str = Field(
+        description="High-level implementation strategy."
+    )
 
-    assumptions: List[str] = Field(default_factory=list)
+    tasks: List[Task] = Field(
+        description="Ordered implementation tasks."
+    )
 
-    missing_information: List[str] = Field(default_factory=list)
+    affected_components: List[str] = Field(
+        default_factory=list,
+        description="Overall list of affected files, modules or services."
+    )
 
-    affected_components: List[str] = Field(default_factory=list)
+    missing_information: List[str] = Field(
+        default_factory=list,
+        description="Unknown information that could not be determined."
+    )
 
-    tasks: List[Task]
+    assumptions: List[str] = Field(
+        default_factory=list,
+        description="Explicit assumptions made while planning."
+    )
 
-    overall_risks: List[str] = Field(default_factory=list)
+    validation: ValidationPlan = Field(
+        default_factory=ValidationPlan
+    )
 
-    validation: ValidationPlan
+    estimated_complexity: Complexity = Complexity.MEDIUM
 
-    out_of_scope: List[str] = Field(default_factory=list)
-
-    estimated_complexity: Complexity
-
-    estimated_risk: RiskLevel
+    estimated_risk: RiskLevel = RiskLevel.LOW
