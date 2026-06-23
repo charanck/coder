@@ -2,10 +2,11 @@ from typing import Any, cast
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
-  AgentMiddleware,
-  ModelRetryMiddleware,
-  ToolCallLimitMiddleware,
-  ToolRetryMiddleware,
+    AgentMiddleware,
+    ModelCallLimitMiddleware,          
+    ModelRetryMiddleware,
+    ToolCallLimitMiddleware,
+    ToolRetryMiddleware,
 )
 from langgraph.cache.memory import InMemoryCache
 
@@ -14,9 +15,12 @@ from core.common.model import get_planner_model
 from core.model.planner import ImplementationPlan
 from core.tools.files import get_directory_tree, read_file, read_files, list_files, find_files
 from core.tools.search import grep, scan_project
+from core.common.middlewares.planner_summarization import PlannerSummarizationMiddleware
+from core.common.middlewares.tool_result_compression import ToolResultCompressionMiddleware  
 
 config = load_config()
 model = get_planner_model()
+
 system_prompt = """
 You are an expert Software Architect responsible only for planning software implementation.
 
@@ -117,6 +121,17 @@ The validation strategy should verify:
 
 Prefer validating against existing project behavior instead of inventing unnecessary tests.
 
+## Context Management                                                       
+Your conversation history is automatically compressed when it grows large.
+A [PLANNER SESSION SUMMARY] block will appear in your context when this happens.
+That block is authoritative: files listed there have already been examined.
+Do not re-read them. Do not re-run searches already recorded there.
+
+When you have gathered enough context to produce the plan, say exactly:
+"Context gathering complete — proceeding to plan generation."
+This triggers an immediate context compression before the final plan is written,
+ensuring the plan step has maximum token headroom.
+
 ## Output
 
 Return exactly one valid ImplementationPlan.
@@ -138,23 +153,36 @@ tools = [read_file, read_files, list_files, find_files, grep, scan_project, get_
 planner_cache = InMemoryCache()
 
 middleware = cast(
-  list[AgentMiddleware[Any, None, Any]],
-  [
-    ToolCallLimitMiddleware(
-      run_limit=config.planner_tool_call_limit,
-      exit_behavior="continue",
-    ),
-    ToolRetryMiddleware(
-      max_retries=2,
-      backoff_factor=1.5,
-      on_failure="continue",
-    ),
-    ModelRetryMiddleware(
-      max_retries=2,
-      backoff_factor=1.5,
-      on_failure="continue",
-    )
-  ],
+    list[AgentMiddleware[Any, None, Any]],
+    [
+        # ToolResultCompressionMiddleware(                                      
+        #     keep_last_n=10,
+        # ),
+        PlannerSummarizationMiddleware(                                      
+            model,
+            trigger=[("tokens", 10000), ("messages", 30)],
+            keep=("messages", 20),
+            enable_phase_detection=True,
+        ),
+        ModelRetryMiddleware(
+            max_retries=2,
+            backoff_factor=1.5,
+            on_failure="continue",
+        ),
+        ToolRetryMiddleware(
+            max_retries=2,
+            backoff_factor=1.5,
+            on_failure="continue",
+        ),
+        ModelCallLimitMiddleware(                                           
+            run_limit=25,
+            exit_behavior="error",
+        ),
+        ToolCallLimitMiddleware(
+            run_limit=config.planner_tool_call_limit,
+            exit_behavior="continue",
+        ),
+    ],
 )
 
 planner_agent = create_agent(

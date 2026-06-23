@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import cast
 
 from config import load_config
@@ -9,10 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langchain.messages import HumanMessage
 
-# logging.basicConfig(level=logging.DEBUG)
-# logging.getLogger("langchain").setLevel(logging.DEBUG)
-# logging.getLogger("langgraph").setLevel(logging.DEBUG)
-# logging.getLogger("httpx").setLevel(logging.DEBUG)
+
 
 def main():
     config = load_config()
