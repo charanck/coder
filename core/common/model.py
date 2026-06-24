@@ -22,3 +22,20 @@ def get_planner_model() -> BaseChatModel:
             api_key=SecretStr(config.planner_model.api_key),
             timeout=config.planner_timeout
         )
+
+def get_executor_model() -> BaseChatModel:
+    """Get the executor model based on the configuration."""
+    config = load_config()
+
+    if config.executor_model.model_provider == "google":
+        return ChatGoogleGenerativeAI(
+            model=config.executor_model.model_name,
+            api_key=SecretStr(config.executor_model.api_key),
+            timeout=config.executor_timeout
+        )
+    return ChatOpenAI(
+            model=config.executor_model.model_name,
+            base_url=config.executor_model.base_url,
+            api_key=SecretStr(config.executor_model.api_key),
+            timeout=config.executor_timeout
+        )

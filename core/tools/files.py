@@ -1,10 +1,14 @@
 from __future__ import annotations
-
+import datetime
 import fnmatch
 import os
 from pathlib import Path
-
+from typing import Dict, Any
 from langchain.tools import tool
+import json
+from core.common.model import get_executor_model
+from langchain_core.prompts import ChatPromptTemplate
+from core.tools.tools import register_extractor
 
 
 DEFAULT_IGNORE_PATTERNS = {
@@ -141,33 +145,69 @@ def read_file(
     except Exception as e:
         return f"Error reading file: {e}"
 
-
-@tool
-def read_files(
-    paths: list[str],
-) -> dict[str, str]:
+@register_extractor("read_file")
+def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts file content metadata and leverages an execution LLM out-of-band to distill architectural facts and functional summaries.
     """
-    Read multiple files.
+    file_path = args.get("path", "unknown")
+    raw_content = str(result)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    Returns:
+    file_summary = "Summary extraction unavailable."
+    extracted_facts = []
 
-    {
-        "main.py": "...",
-        "config.py": "...",
-    }
-    """
+    try:
+        model = get_executor_model()
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are a core architecture analyzer. Inspect the following source file code.\n"
+                    "Extract:\n"
+                    "1. A highly concise 1-2 sentence functional summary of its purpose.\n"
+                    "2. A list of critical code invariants, core structural patterns, or system truths.\n\n"
+                    "Return your analysis STRICTLY as a raw JSON object matching this schema:\n"
+                    '{{"summary": "string", "facts": ["string", "string"]}}',
+                ),
+                ("human", "File Path: {file_path}\n\nContent:\n{content}"),
+            ]
+        )
+        chain = prompt | model
+        response = chain.invoke({"file_path": file_path, "content": raw_content})
+        response_content = response.content if hasattr(response, "content") else response
+        response_text: str = response_content if isinstance(response_content, str) else str(response_content)
 
-    results = {}
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0]
 
-    for path in paths:
-        results[path] = read_file.invoke(
-            {
-                "file_path": path,
-            }
+        parsed_data = json.loads(response_text.strip())
+        file_summary = parsed_data.get("summary", file_summary)
+        extracted_facts = parsed_data.get("facts", [])
+        # TODO: use LSP to extract structured symbols, classes, functions, and dependencies for the workspace update
+    except Exception as e:
+        file_summary = (
+            f"Failed to systematically extract summary due to exception: {str(e)}"
         )
 
-    return results
+    workspace_payload = {
+        "full_content": raw_content,
+        "summary": file_summary,
+        "lines": len(raw_content.splitlines()),
+        "last_read": timestamp,
+    }
 
+    known_facts_payload = [
+        {"source": file_path, "fact": fact, "extracted_at": timestamp}
+        for fact in extracted_facts
+    ]
+
+    return {
+        "workspace_update": {file_path: workspace_payload},
+        "artifacts_update": {file_path: "read"},
+        "known_facts_update": known_facts_payload,
+    }
 
 @tool
 def list_files(
@@ -255,7 +295,6 @@ def list_files(
     except Exception as e:
         return f"Error listing files: {e}"
 
-
 @tool
 def find_files(
     pattern: str,
@@ -326,8 +365,6 @@ def find_files(
     except Exception as e:
         return f"Error finding files: {e}"
     
-
-
 @tool
 def get_directory_tree(
     root: str = ".",

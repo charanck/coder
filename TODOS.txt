@@ -15,37 +15,16 @@
 
 
 
------TOOLS TO BE IMPLEMENTED-----
-File System
-✅ Read File
-✅ Write File
-✅ Edit File
-✅ Multi Edit File
-✅ Create File
-✅ List Directory
-Search
-✅ Find Files
-✅ Grep
-✅ Scan Project
-Shell
-✅ Run Command
-Development
-✅ Build Project
-✅ Run Tests
-✅ Run Linter
-Git
-✅ Git Status
-✅ Git Diff
-Web
-✅ Web Search
-✅ Fetch URL
-✅ Search Documentation
-Planning
-✅ Create Implementation Plan
-Utilities
-✅ Apply Patch
+----------------TODOS--------------------------
+- Plan langgraph architecture for planner agent
+- Plan design for session manager
+- [X] Design state model for planner and executor agent
 
 
-
-------TODOS:---------------
-- Port the langchain implementation to langgraph and implement the coding agent using langgraph
+------------------COMPONENTS-------------------
+- Conversation summarizer
+- knowledge, artifacts and facts extractions from tool results
+- guardrails for tool execution
+- project indexing semantically
+- lsp integration for code understanding and analysis
+- Implementing a TUI for user interaction with the coding agent
