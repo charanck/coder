@@ -9,7 +9,17 @@ import json
 from core.common.model import get_executor_model
 from langchain_core.prompts import ChatPromptTemplate
 from core.tools.tools import register_extractor
+from core.client.lsp.manager import lsp_manager
 
+# Mapping standard LSP SymbolKind integers to human-readable identifiers
+LSP_SYMBOL_KIND_MAP = {
+    1: "File", 2: "Module", 3: "Namespace", 4: "Package", 5: "Class",
+    6: "Method", 7: "Property", 8: "Field", 9: "Constructor", 10: "Enum",
+    11: "Interface", 12: "Function", 13: "Variable", 14: "Constant",
+    15: "String", 16: "Number", 17: "Boolean", 18: "Array", 19: "Object",
+    20: "Key", 21: "Null", 22: "EnumMember", 23: "Struct", 24: "Event",
+    25: "Operator", 26: "TypeParameter"
+}
 
 DEFAULT_IGNORE_PATTERNS = {
     # Python
@@ -147,60 +157,87 @@ def read_file(
 
 @register_extractor("read_file")
 def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Extracts file content metadata and leverages an execution LLM out-of-band to distill architectural facts and functional summaries.
+    """Extracts file content metadata using LSP for structural data and invariant 
+    generation, reserving the LLM strictly for high-level semantic summarization.
     """
     file_path = args.get("path", "unknown")
-    raw_content = str(result)
+    raw_content = str(result.content) if hasattr(result, "content") else str(result)
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     file_summary = "Summary extraction unavailable."
-    extracted_facts = []
+    lsp_facts = []
+    parsed_symbols = []
 
     try:
+        workspace_dir = str(Path(file_path).parent)
+        lsp_client = lsp_manager.get_by_extension(file_path, workspace=workspace_dir)
+        
+        raw_symbols = lsp_client.extract_document_symbols(file_path) or []
+        
+        def parse_lsp_symbols(symbols: list[dict], parent_name: str = ""):
+            for sym in symbols:
+                name = sym.get("name", "unknown")
+                kind_id = sym.get("kind", 0)
+                kind_name = LSP_SYMBOL_KIND_MAP.get(kind_id, f"Unknown({kind_id})")
+                
+                sym_range = sym.get("range", {})
+                start_line = sym_range.get("start", {}).get("line", 0) + 1
+                end_line = sym_range.get("end", {}).get("line", 0) + 1
+                
+                full_identity = f"{parent_name}.{name}" if parent_name else name
+
+                parsed_symbols.append({
+                    "name": name,
+                    "kind": kind_name,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "identity": full_identity
+                })
+                
+                if kind_name in ["Class", "Interface", "Struct", "Enum"]:
+                    lsp_facts.append(
+                        f"Defines core structure '{full_identity}' ({kind_name}) from lines {start_line} to {end_line}."
+                    )
+                elif kind_name in ["Method", "Function"] and not parent_name:
+                    lsp_facts.append(
+                        f"Exposes top-level executable capability '{full_identity}' ({kind_name}) starting at line {start_line}."
+                    )
+                
+                if "children" in sym and sym["children"]:
+                    parse_lsp_symbols(sym["children"], parent_name=full_identity)
+
+        parse_lsp_symbols(raw_symbols)
+
         model = get_executor_model()
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "You are a core architecture analyzer. Inspect the following source file code.\n"
-                    "Extract:\n"
-                    "1. A highly concise 1-2 sentence functional summary of its purpose.\n"
-                    "2. A list of critical code invariants, core structural patterns, or system truths.\n\n"
-                    "Return your analysis STRICTLY as a raw JSON object matching this schema:\n"
-                    '{{"summary": "string", "facts": ["string", "string"]}}',
-                ),
-                ("human", "File Path: {file_path}\n\nContent:\n{content}"),
-            ]
-        )
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "You are a core architecture analyzer. Review the provided source code and write a highly concise, "
+                "1-2 sentence functional summary describing its business logic and architectural purpose.\n"
+                "DO NOT include markdown, code blocks, lists, or structural metadata. Return ONLY the plain text summary."
+            ),
+            ("human", "File Path: {file_path}\n\nContent:\n{content}")
+        ])
+        
         chain = prompt | model
         response = chain.invoke({"file_path": file_path, "content": raw_content})
         response_content = response.content if hasattr(response, "content") else response
-        response_text: str = response_content if isinstance(response_content, str) else str(response_content)
+        file_summary = str(response_content).strip()
 
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
-
-        parsed_data = json.loads(response_text.strip())
-        file_summary = parsed_data.get("summary", file_summary)
-        extracted_facts = parsed_data.get("facts", [])
-        # TODO: use LSP to extract structured symbols, classes, functions, and dependencies for the workspace update
     except Exception as e:
-        file_summary = (
-            f"Failed to systematically extract summary due to exception: {str(e)}"
-        )
+        file_summary = f"Systematic analysis completed with degradation. Error mapping structural layout: {str(e)}"
 
     workspace_payload = {
         "full_content": raw_content,
         "summary": file_summary,
         "lines": len(raw_content.splitlines()),
+        "symbols": parsed_symbols,  
         "last_read": timestamp,
     }
 
     known_facts_payload = [
         {"source": file_path, "fact": fact, "extracted_at": timestamp}
-        for fact in extracted_facts
+        for fact in lsp_facts
     ]
 
     return {

@@ -16,7 +16,7 @@
 
 
 ----------------TODOS--------------------------
-- [ ] Implementation for LSP integration for code understanding and analysis
+- [X] Implementation for LSP integration for code understanding and analysis
 - [ ] Implementing a TUI for user interaction with the coding agent
 - [X] Plan langgraph architecture for planner agent
 - [ ] Plan design for session manager
