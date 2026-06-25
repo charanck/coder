@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 
 from core.agents.nodes.util import tools_from_runnable_config
 from core.model.state import CodingAgentState
-from core.tools.tools import TOOL_EXTRACTOR_REGISTRY
+from core.tools.registry import TOOL_EXTRACTOR_REGISTRY
 
 
 def tools_to_run_from_history(state: CodingAgentState) -> list[ToolCall]:

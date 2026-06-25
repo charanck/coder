@@ -1,56 +1,16 @@
+import datetime
 import re
-from pathlib import Path
-from collections import Counter
 import os
+import collections
+from pathlib import Path
+from langchain_core.tools import tool
 import fnmatch
+from typing import Any, Dict
 from core.model.search import ProjectSummary
 from core.tools.files import DEFAULT_IGNORE_PATTERNS
 from langchain.tools import tool
 
-
-LANGUAGE_MAP = {
-    ".py": "Python",
-    ".go": "Go",
-    ".js": "JavaScript",
-    ".ts": "TypeScript",
-    ".tsx": "TypeScript",
-    ".jsx": "JavaScript",
-    ".java": "Java",
-    ".kt": "Kotlin",
-    ".rs": "Rust",
-    ".cpp": "C++",
-    ".cc": "C++",
-    ".c": "C",
-    ".cs": "C#",
-    ".swift": "Swift",
-    ".php": "PHP",
-    ".rb": "Ruby",
-    ".scala": "Scala",
-    ".dart": "Dart",
-    ".yaml": "YAML",
-    ".yml": "YAML",
-    ".json": "JSON",
-    ".toml": "TOML",
-}
-
-
-FRAMEWORK_FILES = {
-    "package.json": "Node.js",
-    "go.mod": "Go Modules",
-    "Cargo.toml": "Rust",
-    "pyproject.toml": "Python",
-    "requirements.txt": "Python",
-    "poetry.lock": "Poetry",
-    "Pipfile": "Pipenv",
-    "pom.xml": "Maven",
-    "build.gradle": "Gradle",
-    "build.gradle.kts": "Gradle",
-    "composer.json": "Composer",
-    "Gemfile": "Ruby",
-    "mix.exs": "Elixir",
-    "pubspec.yaml": "Flutter",
-}
-
+from core.tools.registry import register_extractor
 
 def should_ignore(name: str, include_hidden: bool):
     if not include_hidden and name.startswith("."):
@@ -62,115 +22,177 @@ def should_ignore(name: str, include_hidden: bool):
     )
 
 
+DEFAULT_LANGUAGE_MAP = {
+    ".py": "Python", ".ts": "TypeScript", ".js": "JavaScript", 
+    ".go": "Go", ".rs": "Rust", ".cpp": "C++", ".c": "C",
+    ".java": "Java", ".rb": "Ruby", ".php": "PHP", ".cs": "C#"
+}
+
+DEFAULT_FRAMEWORK_FILES = {
+    "package.json": "Node.js", "requirements.txt": "Python",
+    "pyproject.toml": "Python", "go.mod": "Go Modules",
+    "Cargo.toml": "Rust", "Gemfile": "Ruby", "composer.json": "PHP"
+}
+
+IGNORE_DIRS = {
+    "node_modules", ".git", ".venv", "venv", "env", "__pycache__",
+    ".pytest_cache", ".mypy_cache", "dist", "build", "target"
+}
+
+def default_should_ignore(name: str, include_hidden: bool) -> bool:
+    if not include_hidden and name.startswith("."):
+        return name not in (".github", ".vscode") 
+    return name in IGNORE_DIRS
+
 @tool
 def scan_project(
     root: str = ".",
     include_hidden: bool = False,
+    max_depth: int = 4
 ) -> ProjectSummary:
+    """Scan a project directory structure and return a high-level architectural summary.
+
+    Use this tool at the initialization phase before invoking targeted file code read sweeps.
+
+    Args:
+        root (str): The root directory of the project to be scanned.
+        include_hidden (bool): Whether to include hidden files and directories in the scan.
+        max_depth (int): Maximum directory depth to scan to avoid deep recursion.
     """
-    Scan a project and return a high-level summary.
-
-    Use this before searching the codebase.
-
-    Returns:
-        Repository summary including languages,
-        frameworks, directory layout, configs,
-        tests and project size.
-    """
-
     try:
-        root_path = Path(root)
-
+        root_path = Path(root).resolve()
         if not root_path.is_dir():
-            raise ValueError(f"'{root_path}' is not a directory.")
+            raise ValueError(f"'{root_path}' is not a valid directory.")
 
-        language_counter = Counter()
-
+        language_counter = collections.Counter()
         frameworks = set()
-
         top_dirs = []
-
         config_files = []
-
         test_dirs = []
-
+        source_dirs = set()
         total_files = 0
 
-        source_dirs = set()
+        root_depth = len(root_path.parts)
 
         for current_root, dirs, files in os.walk(root_path):
+            current_path = Path(current_root)
+            current_depth = len(current_path.parts) - root_depth
+            
+            if current_depth >= max_depth:
+                dirs[:] = [] 
+                continue
 
-            dirs[:] = sorted(
-                d
-                for d in dirs
-                if not should_ignore(d, include_hidden)
-            )
+            dirs[:] = sorted([
+                d for d in dirs 
+                if not default_should_ignore(d, include_hidden)
+            ])
 
-            rel_root = Path(
-                os.path.relpath(current_root, root_path)
-            )
+            rel_root = current_path.relative_to(root_path)
 
             if rel_root == Path("."):
                 top_dirs.extend(sorted(dirs))
 
-            if any(
-                x in rel_root.parts
-                for x in ("test", "tests", "__tests__")
-            ):
+            parts_lower = [p.lower() for p in rel_root.parts]
+            if any(x in parts_lower for x in ("test", "tests", "__tests__", "spec")):
                 test_dirs.append(str(rel_root))
 
-            if any(
-                x in rel_root.parts
-                for x in ("src", "app", "internal", "cmd", "pkg", "lib")
-            ):
+            if any(x in parts_lower for x in ("src", "app", "internal", "cmd", "pkg", "lib", "source")):
                 source_dirs.add(str(rel_root))
 
             for file in files:
-
-                if should_ignore(file, include_hidden):
+                if default_should_ignore(file, include_hidden):
                     continue
 
                 total_files += 1
-
                 ext = Path(file).suffix.lower()
 
-                if ext in LANGUAGE_MAP:
-                    language_counter[
-                        LANGUAGE_MAP[ext]
-                    ] += 1
+                if ext in DEFAULT_LANGUAGE_MAP:
+                    language_counter[DEFAULT_LANGUAGE_MAP[ext]] += 1
 
-                if file in FRAMEWORK_FILES:
-                    frameworks.add(
-                        FRAMEWORK_FILES[file]
-                    )
-
-                    config_files.append(
-                        str(rel_root / file)
-                        if rel_root != Path(".")
-                        else file
-                    )
+                if file in DEFAULT_FRAMEWORK_FILES:
+                    frameworks.add(DEFAULT_FRAMEWORK_FILES[file])
+                    config_files.append(str(rel_root / file) if rel_root != Path(".") else file)
 
         package_manager = next(
-            (fw for fw in frameworks 
-             if fw in ("Node.js", "Python", "Go Modules", "Rust")), 
+            (fw for fw in frameworks if fw in ("Node.js", "Python", "Go Modules", "Rust")), 
             None
         )
 
         return ProjectSummary(
-            root=str(root_path.resolve()),
+            root=str(root_path),
             total_files=total_files,
             languages=dict(language_counter),
-            frameworks=sorted(frameworks),
+            frameworks=sorted(list(frameworks)),
             package_manager=package_manager,
             top_level_directories=top_dirs,
-            source_directories=sorted(source_dirs),
-            test_directories=sorted(set(test_dirs)),
+            source_directories=sorted(list(source_dirs)),
+            test_directories=sorted(list(set(test_dirs))),
             config_files=sorted(config_files),
         )
 
     except Exception as e:
-        raise ValueError(f"Error scanning project: {e}")
+        raise ValueError(f"Error scanning project layout: {str(e)}")
+                         
+@register_extractor("scan_project")
+def extract_scan_project(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
+    if hasattr(result, "model_dump"):
+        data = result.model_dump()
+    elif hasattr(result, "dict"):
+        data = result.dict()
+    elif isinstance(result, dict):
+        data = result
+    else:
+        return {}
+
+    root_dir = data.get("root", "unknown")
+    
+    # 1. Structure out-of-band persistent repository metadata inside the workspace state tracking
+    workspace_update = {
+        "__repository_manifest__": {
+            "total_files": data.get("total_files", 0),
+            "languages_distribution": data.get("languages", {}),
+            "frameworks": data.get("frameworks", []),
+            "package_manager": data.get("package_manager"),
+            "top_level_layout": data.get("top_level_directories", []),
+            "source_roots": data.get("source_directories", []),
+            "test_roots": data.get("test_directories", []),
+            "scanned_at": timestamp
+        }
+    }
+
+    # 2. Derive system truths to append directly to the global `known_facts` list reducer
+    known_facts_update = []
+    
+    if data.get("package_manager"):
+        known_facts_update.append({
+            "source": f"scan_project:{root_dir}",
+            "fact": f"Project target runtime package manager environment is explicitly identified as {data['package_manager']}.",
+            "extracted_at": timestamp
+        })
+
+    primary_langs = sorted(data.get("languages", {}).items(), key=lambda x: x[1], reverse=True)
+    if primary_langs:
+        top_lang = primary_langs[0][0]
+        known_facts_update.append({
+            "source": f"scan_project:{root_dir}",
+            "fact": f"The dominant project codebase development language is tracked as {top_lang}.",
+            "extracted_at": timestamp
+        })
+
+    for cfg in data.get("config_files", []):
+        known_facts_update.append({
+            "source": f"scan_project:{root_dir}",
+            "fact": f"Detected fundamental project execution configuration map resource: {cfg}",
+            "extracted_at": timestamp
+        })
+
+    return {
+        "workspace_update": workspace_update,
+        "artifacts_update": {root_dir: "read"},
+        "known_facts_update": known_facts_update
+    }
 
 @tool
 def grep(pattern: str, file_path: str) -> str:

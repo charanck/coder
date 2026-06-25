@@ -8,7 +8,7 @@ from langchain.tools import tool
 import json
 from core.common.model import get_executor_model
 from langchain_core.prompts import ChatPromptTemplate
-from core.tools.tools import register_extractor
+from core.tools.registry import register_extractor
 from core.client.lsp.manager import lsp_manager
 
 # Mapping standard LSP SymbolKind integers to human-readable identifiers
@@ -160,7 +160,7 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Extracts file content metadata using LSP for structural data and invariant 
     generation, reserving the LLM strictly for high-level semantic summarization.
     """
-    file_path = args.get("path", "unknown")
+    file_path = args.get("path") or args.get("file_path") or "unknown"
     raw_content = str(result.content) if hasattr(result, "content") else str(result)
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -171,8 +171,8 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         workspace_dir = str(Path(file_path).parent)
         lsp_client = lsp_manager.get_by_extension(file_path, workspace=workspace_dir)
-        
-        raw_symbols = lsp_client.extract_document_symbols(file_path) or []
+
+        raw_symbols = lsp_client.extract_document_symbols(str(Path(file_path).resolve().as_uri())) or []
         
         def parse_lsp_symbols(symbols: list[dict], parent_name: str = ""):
             for sym in symbols:

@@ -16,6 +16,7 @@
 
 
 ----------------TODOS--------------------------
+- [X] Make different Nodes and its extractors testable and implement unit tests for them
 - [X] Implementation for LSP integration for code understanding and analysis
 - [ ] Implementing a TUI for user interaction with the coding agent
 - [X] Plan langgraph architecture for planner agent
