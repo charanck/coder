@@ -2,7 +2,7 @@ import asyncio
 from typing import cast
 
 from config import load_config
-from core.agents.planner import planner_agent
+from core.agents.planner import get_planner_agent
 from core.common.tracing import flush_langfuse_traces, get_langfuse_callback_handler
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
@@ -23,7 +23,7 @@ def main():
     try:
         response = asyncio.run(
             asyncio.wait_for(
-                planner_agent.ainvoke(
+                get_planner_agent().ainvoke(
                     {
                         "messages": [
                             HumanMessage(

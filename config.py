@@ -38,13 +38,11 @@ class Config(BaseModel):
     executor_timeout: int = 60 * 10  # Timeout for executor in seconds
 
 
-@lru_cache(maxsize=1)
-def load_config() -> Config:
-    """Load configuration from environment variables."""
+def _build_config_from_env(*, emit_summary: bool) -> Config:
     import os
 
-    # load .env file if it exists
     from dotenv import load_dotenv
+
     load_dotenv()
 
     planner_model_provider = os.getenv("PLANNER_MODEL_PROVIDER", "google")
@@ -68,18 +66,18 @@ def load_config() -> Config:
     planner_tool_call_limit = int(os.getenv("PLANNER_TOOL_CALL_LIMIT", 200))
     executor_timeout = int(os.getenv("EXECUTOR_TIMEOUT", 60 * 10))
 
-    config =  Config(
+    config = Config(
         planner_model=ModelConfig(
             model_provider=planner_model_provider,  # type: ignore
             model_name=planner_model_name,
             base_url=planner_base_url,
-            api_key=planner_api_key
+            api_key=planner_api_key,
         ),
         executor_model=ModelConfig(
             model_provider=executor_model_provider,  # type: ignore
             model_name=executor_model_name,
             base_url=executor_base_url,
-            api_key=executor_api_key
+            api_key=executor_api_key,
         ),
         langfuse=LangfuseConfig(
             enabled=langfuse_enabled,
@@ -91,19 +89,86 @@ def load_config() -> Config:
         planner_step_timeout=planner_step_timeout,
         planner_agent_timeout=planner_agent_timeout,
         planner_tool_call_limit=planner_tool_call_limit,
-        executor_timeout=executor_timeout
+        executor_timeout=executor_timeout,
     )
-    print("Configuration loaded successfully.")
-    print(
-        {
-            "planner_timeout": config.planner_timeout,
-            "planner_step_timeout": config.planner_step_timeout,
-            "planner_agent_timeout": config.planner_agent_timeout,
-            "planner_tool_call_limit": config.planner_tool_call_limit,
-            "executor_timeout": config.executor_timeout,
-            "langfuse_enabled": config.langfuse.enabled,
-            "langfuse_base_url": config.langfuse.base_url,
-        }
-    )
+
+    if emit_summary:
+        print("Configuration loaded successfully.")
+        print(
+            {
+                "planner_timeout": config.planner_timeout,
+                "planner_step_timeout": config.planner_step_timeout,
+                "planner_agent_timeout": config.planner_agent_timeout,
+                "planner_tool_call_limit": config.planner_tool_call_limit,
+                "executor_timeout": config.executor_timeout,
+                "langfuse_enabled": config.langfuse.enabled,
+                "langfuse_base_url": config.langfuse.base_url,
+            }
+        )
+
     return config
+
+
+def load_unit_test_config() -> Config:
+    """Load a fast, deterministic config for unit tests."""
+    return Config(
+        planner_model=ModelConfig(
+            model_provider="local",
+            model_name="unit-test-planner",
+            base_url="http://localhost:11434/v1",
+            api_key="unit-test-api-key",
+        ),
+        executor_model=ModelConfig(
+            model_provider="local",
+            model_name="unit-test-executor",
+            base_url="http://localhost:11434/v1",
+            api_key="unit-test-api-key",
+        ),
+        langfuse=LangfuseConfig(),
+        planner_timeout=5,
+        planner_step_timeout=5,
+        planner_agent_timeout=15,
+        planner_tool_call_limit=5,
+        executor_timeout=5,
+    )
+
+
+def load_integration_test_config() -> Config:
+    """Load environment-backed config for integration tests."""
+    return _build_config_from_env(emit_summary=False)
+
+
+@lru_cache(maxsize=1)
+def load_runtime_config() -> Config:
+    """Load configuration from environment variables for normal runtime use."""
+    return _build_config_from_env(emit_summary=True)
+
+
+def _current_config_profile() -> str:
+    import os
+
+    profile = os.getenv("APP_CONFIG_PROFILE", "").strip().lower()
+    if profile:
+        return profile
+
+    current_test = os.getenv("PYTEST_CURRENT_TEST", "")
+    normalized_test = current_test.replace("\\", "/")
+
+    if "tests/integration/" in normalized_test:
+        return "integration"
+    if "tests/unit/" in normalized_test:
+        return "unit"
+
+    return "runtime"
+
+
+def load_config() -> Config:
+    """Load the appropriate config for the current execution context."""
+    profile = _current_config_profile()
+
+    if profile == "unit":
+        return load_unit_test_config()
+    if profile == "integration":
+        return load_integration_test_config()
+    return load_runtime_config()
 

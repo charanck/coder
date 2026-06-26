@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Any, cast
 
 from langchain.agents import create_agent
@@ -17,9 +18,6 @@ from core.tools.files import get_directory_tree, read_file, read_files, list_fil
 from core.tools.search import grep, scan_project
 from core.common.middlewares.planner_summarization import PlannerSummarizationMiddleware
 from core.common.middlewares.tool_result_compression import ToolResultCompressionMiddleware  
-
-config = load_config()
-model = get_planner_model()
 
 system_prompt = """
 You are an expert Software Architect responsible only for planning software implementation.
@@ -152,44 +150,50 @@ Do not change task ids unless required.
 tools = [read_file, read_files, list_files, find_files, grep, scan_project, get_directory_tree]
 planner_cache = InMemoryCache()
 
-middleware = cast(
-    list[AgentMiddleware[Any, None, Any]],
-    [
-        # ToolResultCompressionMiddleware(                                      
-        #     keep_last_n=10,
-        # ),
-        PlannerSummarizationMiddleware(                                      
-            model,
-            trigger=[("tokens", 10000), ("messages", 30)],
-            keep=("messages", 20),
-            enable_phase_detection=True,
-        ),
-        ModelRetryMiddleware(
-            max_retries=2,
-            backoff_factor=1.5,
-            on_failure="continue",
-        ),
-        ToolRetryMiddleware(
-            max_retries=2,
-            backoff_factor=1.5,
-            on_failure="continue",
-        ),
-        ModelCallLimitMiddleware(                                           
-            run_limit=25,
-            exit_behavior="error",
-        ),
-        ToolCallLimitMiddleware(
-            run_limit=config.planner_tool_call_limit,
-            exit_behavior="continue",
-        ),
-    ],
-)
 
-planner_agent = create_agent(
-    model=model,
-    tools=tools,
-    system_prompt=system_prompt,
-    response_format=ImplementationPlan,
-    middleware=middleware,
-    cache=planner_cache,
-)
+@lru_cache(maxsize=1)
+def get_planner_agent():
+    config = load_config()
+    model = get_planner_model()
+
+    middleware = cast(
+        list[AgentMiddleware[Any, None, Any]],
+        [
+            # ToolResultCompressionMiddleware(                                      
+            #     keep_last_n=10,
+            # ),
+            PlannerSummarizationMiddleware(                                      
+                model,
+                trigger=[("tokens", 10000), ("messages", 30)],
+                keep=("messages", 20),
+                enable_phase_detection=True,
+            ),
+            ModelRetryMiddleware(
+                max_retries=2,
+                backoff_factor=1.5,
+                on_failure="continue",
+            ),
+            ToolRetryMiddleware(
+                max_retries=2,
+                backoff_factor=1.5,
+                on_failure="continue",
+            ),
+            ModelCallLimitMiddleware(                                            
+                run_limit=25,
+                exit_behavior="error",
+            ),
+            ToolCallLimitMiddleware(
+                run_limit=config.planner_tool_call_limit,
+                exit_behavior="continue",
+            ),
+        ],
+    )
+
+    return create_agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt,
+        response_format=ImplementationPlan,
+        middleware=middleware,
+        cache=planner_cache,
+    )
