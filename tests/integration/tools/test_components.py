@@ -11,7 +11,7 @@ from core.client.lsp.manager import lsp_manager
 from core.common.model import get_executor_model
 from core.tools.files import extract_read_file, read_file
 from core.tools.search import scan_project
-from tests.support.language_cases import SUPPORTED_LSP_LANGUAGE_CASES
+from config import SUPPORTED_LSP_LANGUAGE_CASES, get_lsp_server_command
 
 
 def _has_python_lsp() -> bool:
@@ -56,15 +56,11 @@ def test_lsp_client_real(integration_workspace):
 
 @pytest.mark.parametrize("case", SUPPORTED_LSP_LANGUAGE_CASES)
 def test_lsp_client_real_for_all_supported_languages(integration_workspace, case):
-    server_binaries = {
-        "python": "basedpyright-langserver",
-        "typescript": "typescript-language-server",
-        "javascript": "typescript-language-server",
-        "go": "gopls",
-        "rust": "rust-analyzer",
-    }
+    command = get_lsp_server_command(case.language)
+    if not command:
+        pytest.skip(f"No LSP command configured for {case.language}")
 
-    binary = server_binaries[case.language]
+    binary = command[0]
     if shutil.which(binary) is None:
         pytest.skip(f"{binary} is not installed")
 

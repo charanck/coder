@@ -1,4 +1,5 @@
 from pathlib import Path
+from config import get_lsp_language_for_extension
 from core.client.lsp.client import LSPFactory
 
 class LSPManager:
@@ -17,16 +18,8 @@ class LSPManager:
         return self._clients[key]
     
     def get_by_extension(self, file_path: str, workspace: str):
-        extension_to_language = {
-            ".py": "python",
-            ".ts": "typescript",
-            ".js": "javascript",
-            ".go": "go",
-            ".rs": "rust",
-        }
-
         ext = Path(file_path).suffix
-        language = extension_to_language.get(ext)
+        language = get_lsp_language_for_extension(ext)
 
         if not language:
             raise ValueError(f"No LSP configured for files with extension {ext}")

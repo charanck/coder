@@ -3,41 +3,19 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
-SERVERS = {
-    "go": {
-        "cmd": ["gopls"],
-        "language_id": "go",
-    },
-    "python": {
-        "cmd": ["basedpyright-langserver", "--stdio"],
-        "language_id": "python",
-    },
-    "typescript": {
-        "cmd": ["typescript-language-server", "--stdio"],
-        "language_id": "typescript",
-    },
-    "javascript": {
-        "cmd": ["typescript-language-server", "--stdio"],
-        "language_id": "javascript",
-    },
-    "rust": {
-        "cmd": ["rust-analyzer"],
-        "language_id": "rust",
-    },
-}
+from config import get_lsp_server_command
 
 class LSPFactory:
 
     @staticmethod
     def create(language: str, workspace: str):
-        config = SERVERS.get(language)
+        server_command = get_lsp_server_command(language)
 
-        if not config:
+        if not server_command:
             raise ValueError(f"No LSP configured for {language}")
 
         client = LSPClient(
-            server_command=config["cmd"],
+            server_command=server_command,
             root_uri=Path(workspace).resolve().as_uri(),
         )
         return client

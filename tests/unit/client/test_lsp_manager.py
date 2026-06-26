@@ -6,8 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from core.client.lsp.manager import lsp_manager
-
-from tests.support.language_cases import SUPPORTED_LSP_LANGUAGE_CASES
+from config import SUPPORTED_LSP_LANGUAGE_CASES
 
 
 @pytest.mark.parametrize("case", SUPPORTED_LSP_LANGUAGE_CASES)

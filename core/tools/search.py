@@ -11,6 +11,7 @@ from core.tools.files import DEFAULT_IGNORE_PATTERNS
 from langchain.tools import tool
 
 from core.tools.registry import register_extractor
+from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP
 
 def should_ignore(name: str, include_hidden: bool):
     if not include_hidden and name.startswith("."):
@@ -21,18 +22,6 @@ def should_ignore(name: str, include_hidden: bool):
         for pattern in DEFAULT_IGNORE_PATTERNS
     )
 
-
-DEFAULT_LANGUAGE_MAP = {
-    ".py": "Python", ".ts": "TypeScript", ".js": "JavaScript", 
-    ".go": "Go", ".rs": "Rust", ".cpp": "C++", ".c": "C",
-    ".java": "Java", ".rb": "Ruby", ".php": "PHP", ".cs": "C#"
-}
-
-DEFAULT_FRAMEWORK_FILES = {
-    "package.json": "Node.js", "requirements.txt": "Python",
-    "pyproject.toml": "Python", "go.mod": "Go Modules",
-    "Cargo.toml": "Rust", "Gemfile": "Ruby", "composer.json": "PHP"
-}
 
 IGNORE_DIRS = {
     "node_modules", ".git", ".venv", "venv", "env", "__pycache__",
@@ -106,11 +95,11 @@ def scan_project(
                 total_files += 1
                 ext = Path(file).suffix.lower()
 
-                if ext in DEFAULT_LANGUAGE_MAP:
-                    language_counter[DEFAULT_LANGUAGE_MAP[ext]] += 1
+                if ext in PROJECT_LANGUAGE_MAP:
+                    language_counter[PROJECT_LANGUAGE_MAP[ext]] += 1
 
-                if file in DEFAULT_FRAMEWORK_FILES:
-                    frameworks.add(DEFAULT_FRAMEWORK_FILES[file])
+                if file in PROJECT_FRAMEWORK_FILES:
+                    frameworks.add(PROJECT_FRAMEWORK_FILES[file])
                     config_files.append(str(rel_root / file) if rel_root != Path(".") else file)
 
         package_manager = next(

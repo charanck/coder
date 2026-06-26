@@ -10,9 +10,9 @@ from core.model.search import ProjectSummary
 from core.tools.files import extract_read_file
 from core.tools.registry import TOOL_EXTRACTOR_REGISTRY
 from core.tools.search import extract_scan_project
+from config import SUPPORTED_LSP_LANGUAGE_CASES
 
 from tests.support.helpers import make_tool_result
-from tests.support.language_cases import SUPPORTED_LSP_LANGUAGE_CASES
 
 
 def test_registry_covers_all_current_extractors():

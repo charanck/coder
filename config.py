@@ -1,6 +1,116 @@
 from functools import lru_cache
+from dataclasses import dataclass
 from typing import Literal
 from pydantic import BaseModel
+
+
+@dataclass(frozen=True, slots=True)
+class SupportedLanguageCase:
+    extension: str
+    language: str
+    file_name: str
+    symbol_name: str
+    symbol_kind: int
+    source_code: str
+    expected_fact_fragment: str
+
+
+SUPPORTED_LSP_LANGUAGE_CASES = (
+    SupportedLanguageCase(
+        extension=".py",
+        language="python",
+        file_name="sample.py",
+        symbol_name="App",
+        symbol_kind=5,
+        source_code="class App:\n    pass\n",
+        expected_fact_fragment="Defines core structure 'App' (Class)",
+    ),
+    SupportedLanguageCase(
+        extension=".ts",
+        language="typescript",
+        file_name="sample.ts",
+        symbol_name="App",
+        symbol_kind=5,
+        source_code="export class App {}\n",
+        expected_fact_fragment="Defines core structure 'App' (Class)",
+    ),
+    SupportedLanguageCase(
+        extension=".js",
+        language="javascript",
+        file_name="sample.js",
+        symbol_name="run",
+        symbol_kind=12,
+        source_code="function run() {}\n",
+        expected_fact_fragment="Exposes top-level executable capability 'run' (Function)",
+    ),
+    SupportedLanguageCase(
+        extension=".go",
+        language="go",
+        file_name="sample.go",
+        symbol_name="App",
+        symbol_kind=23,
+        source_code="type App struct{}\n",
+        expected_fact_fragment="Defines core structure 'App' (Struct)",
+    ),
+    SupportedLanguageCase(
+        extension=".rs",
+        language="rust",
+        file_name="sample.rs",
+        symbol_name="App",
+        symbol_kind=23,
+        source_code="struct App;\n",
+        expected_fact_fragment="Defines core structure 'App' (Struct)",
+    ),
+)
+
+LSP_EXTENSION_TO_LANGUAGE = {
+    case.extension: case.language for case in SUPPORTED_LSP_LANGUAGE_CASES
+}
+
+LSP_SERVER_COMMANDS = {
+    "go": ["gopls"],
+    "python": ["basedpyright-langserver", "--stdio"],
+    "typescript": ["typescript-language-server", "--stdio"],
+    "javascript": ["typescript-language-server", "--stdio"],
+    "rust": ["rust-analyzer"],
+}
+
+PROJECT_LANGUAGE_MAP = {
+    ".py": "Python",
+    ".ts": "TypeScript",
+    ".js": "JavaScript",
+    ".go": "Go",
+    ".rs": "Rust",
+    ".cpp": "C++",
+    ".c": "C",
+    ".java": "Java",
+    ".rb": "Ruby",
+    ".php": "PHP",
+    ".cs": "C#",
+}
+
+PROJECT_FRAMEWORK_FILES = {
+    "package.json": "Node.js",
+    "requirements.txt": "Python",
+    "pyproject.toml": "Python",
+    "go.mod": "Go Modules",
+    "Cargo.toml": "Rust",
+    "Gemfile": "Ruby",
+    "composer.json": "PHP",
+}
+
+
+def get_supported_lsp_language_cases() -> tuple[SupportedLanguageCase, ...]:
+    return SUPPORTED_LSP_LANGUAGE_CASES
+
+
+def get_lsp_language_for_extension(extension: str) -> str | None:
+    return LSP_EXTENSION_TO_LANGUAGE.get(extension)
+
+
+def get_lsp_server_command(language: str) -> list[str] | None:
+    command = LSP_SERVER_COMMANDS.get(language)
+    return list(command) if command is not None else None
 
 
 class ModelConfig(BaseModel):
