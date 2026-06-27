@@ -1,5 +1,7 @@
 import json
+import os
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +17,22 @@ class LSPFactory:
             raise ValueError(f"No LSP configured for {language}")
 
         client = LSPClient(
-            server_command=server_command,
+            server_command=_resolve_server_command(server_command),
             root_uri=Path(workspace).resolve().as_uri(),
         )
         return client
+
+
+def _resolve_server_command(server_command: list[str]) -> list[str]:
+    executable = shutil.which(server_command[0])
+
+    if executable is None:
+        return server_command
+
+    if os.name == "nt" and Path(executable).suffix.lower() in {".cmd", ".bat"}:
+        return ["cmd.exe", "/c", executable, *server_command[1:]]
+
+    return [executable, *server_command[1:]]
 
 
 

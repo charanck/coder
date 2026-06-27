@@ -1,7 +1,4 @@
 from __future__ import annotations
-
-import logging
-import os
 import shutil
 from pathlib import Path
 
@@ -73,7 +70,7 @@ def test_lsp_client_real_for_all_supported_languages(integration_workspace, case
 
 def test_read_file_extractor_real(integration_workspace):
     if not _has_python_lsp():
-        pytest.fail("basedpyright-langserver is not installed. Please install it to run this test.")
+        pytest.skip("basedpyright-langserver is not installed. Please install it to run this test.")
 
     model = get_executor_model()
     response = model.invoke("Reply with one word: ok")
