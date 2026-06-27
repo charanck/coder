@@ -3,13 +3,14 @@ import re
 import os
 import collections
 from pathlib import Path
+import datetime
 from langchain_core.tools import tool
 import fnmatch
-from typing import Any, Dict
+from typing import Any, Dict, List
 from core.model.search import ProjectSummary
 from core.tools.files import DEFAULT_IGNORE_PATTERNS
 from langchain.tools import tool
-
+from pydantic import BaseModel, Field
 from core.tools.registry import register_extractor
 from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP
 
@@ -183,39 +184,106 @@ def extract_scan_project(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         "known_facts_update": known_facts_update
     }
 
-@tool
-def grep(pattern: str, file_path: str) -> str:
-    """Search for a pattern in a file and return matching lines.
-    
-    Args:
-        pattern (str): The regex pattern to search for.
-        file_path (str): The path to the file to be searched.
+class MatchLine(BaseModel):
+    line_number: int = Field(description="The 1-indexed line number where the pattern was found.")
+    content: str = Field(description="The raw text content of the matching line.")
 
-    Returns:
-        str: Newline-separated lines that match the pattern,
-             or an error message if the file cannot be read.
+class GrepResult(BaseModel):
+    pattern: str = Field(description="The regex pattern used for the search.")
+    file_path: str = Field(description="The path of the file searched.")
+    matches: List[MatchLine] = Field(default_factory=list, description="List of structured matches.")
+    total_found: int = Field(default=0, description="Total match count before truncation.")
+    error: str | None = Field(default=None, description="Error message if the execution failed.")
+
+    def __str__(self) -> str:
+        """Formats the output into a ultra-scannable format for the LLM context window."""
+        if self.error:
+            return self.error
+        if not self.matches:
+            return f"No matches found for pattern '{self.pattern}' in '{self.file_path}'."
+        
+        output = []
+        for m in self.matches:
+            # Ensure line content ends with a newline safely
+            clean_content = m.content if m.content.endswith("\n") else f"{m.content}\n"
+            output.append(f"{m.line_number}:{clean_content}")
+            
+        if self.total_found > len(self.matches):
+            output.append(f"\n[Truncated] Found {self.total_found} total matches. Showing first {len(self.matches)}.")
+        return "".join(output)
+
+@tool
+def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
+    """Search for a regex pattern in a file and return matching lines with line numbers.
+
+    Use this tool to find specific references, declarations, or functions inside a target file.
     """
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        path = Path(file_path)
+        if not path.is_file():
+            return GrepResult(pattern=pattern, file_path=file_path, error=f"Error: file not found: '{file_path}'")
 
-        matches = [line for line in lines if re.search(pattern, line)]
+        matches = []
+        total_found = 0
+        compiled_regex = re.compile(pattern)
 
-        if not matches:
-            return f"No matches found for pattern '{pattern}' in '{file_path}'."
+        # Using errors="replace" to prevent unexpected decoding crashes on non-UTF-8 binary/generated files
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for idx, line in enumerate(f, start=1):
+                if compiled_regex.search(line):
+                    total_found += 1
+                    if len(matches) < max_matches:
+                        matches.append(MatchLine(line_number=idx, content=line))
 
-        return "".join(matches)  # lines already contain \n
+        return GrepResult(
+            pattern=pattern,
+            file_path=file_path,
+            matches=matches,
+            total_found=total_found
+        )
 
-    except FileNotFoundError:
-        return f"Error: file not found: '{file_path}'"
     except re.error as e:
-        return f"Error: invalid regex pattern '{pattern}': {e}"
+        return GrepResult(pattern=pattern, file_path=file_path, error=f"Error: invalid regex pattern '{pattern}': {e}")
     except Exception as e:
-        return f"Error reading file: {e}"
+        return GrepResult(pattern=pattern, file_path=file_path, error=f"Error reading file: {str(e)}")
+
+@register_extractor("grep")
+def extract_grep(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts structural matches from a grep invocation and logs them 
+
+    into historical searches and artifact tracking layers.
+    """
+    # Guard clause if the execution crashed completely before creating a model
+    if not isinstance(result, GrepResult) or result.error:
+        return {}
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pattern_key = result.pattern
+    file_path = result.file_path
+
+    # Convert matches into flat, loose dictionaries matching your CodingAgentState paradigm
+    extracted_matches = [
+        {
+            "file_path": file_path,
+            "line_number": match.line_number,
+            "content": match.content.strip(),
+            "found_at": timestamp
+        }
+        for match in result.matches
+    ]
+
+    return {
+        "searches_update": {
+            pattern_key: extracted_matches
+        },
+        "artifacts_update": {
+            file_path: "read"
+        }
+    }
 
 
-@tool
-def grep_in_project(pattern: str, root: str = ".", include_hidden: bool = False) -> dict[str, list[str]]:
+# @tool
+# def grep_in_project(pattern: str, root: str = ".", include_hidden: bool = False) -> dict[str, list[str]]:
     """
     Search for a pattern in all files of a project and return matching lines.
 

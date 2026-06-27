@@ -144,18 +144,3 @@ class LSPClient:
         )
         # Returns an array of symbols (Name, Kind: Function/Class, Range: Start/End Lines)
         return response.get("result", [])
-
-
-# --- Example Usage inside your Extractor Node ---
-# client = LSPClient(server_command=["pyright-langserver", "--stdio"], root_uri="file:///path/to/project")
-# symbols = client.extract_document_symbols("file:///path/to/project/main.py")
-            # return await self.request(
-            #     "textDocument/definition",
-            #     {
-            #         "textDocument": {"uri": uri},
-            #         "position": {
-            #             "line": line,
-            #             "character": char,
-            #         },
-            #     },
-            # )

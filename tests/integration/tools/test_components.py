@@ -11,11 +11,6 @@ from core.tools.search import scan_project
 from config import SUPPORTED_LSP_LANGUAGE_CASES, get_lsp_server_command
 
 
-def _has_python_lsp() -> bool:
-    return shutil.which("basedpyright-langserver") is not None
-
-
-
 @pytest.fixture()
 def integration_workspace(tmp_path):
     (tmp_path / "src").mkdir(parents=True, exist_ok=True)
@@ -41,11 +36,10 @@ def test_scan_project_tool_real(integration_workspace):
 
 
 def test_lsp_client_real(integration_workspace):
-    if not _has_python_lsp():
-        pytest.skip("basedpyright-langserver is not installed")
-
     file_path = integration_workspace / "src" / "sample.py"
     client = lsp_manager.get_by_extension(str(file_path), workspace=str(integration_workspace))
+    if client is None:
+        pytest.skip("No LSP client available for the given file extension")
     symbols = client.extract_document_symbols(str(file_path.resolve().as_uri()))
 
     assert isinstance(symbols, list)
@@ -63,14 +57,18 @@ def test_lsp_client_real_for_all_supported_languages(integration_workspace, case
 
     file_path = Path(integration_workspace) / "src" / case.file_name
     client = lsp_manager.get_by_extension(str(file_path), workspace=str(integration_workspace))
+    if client is None:
+        pytest.skip(f"No LSP client available for the given file extension {file_path.suffix}")
     symbols = client.extract_document_symbols(str(file_path.resolve().as_uri()))
 
     assert isinstance(symbols, list)
 
 
 def test_read_file_extractor_real(integration_workspace):
-    if not _has_python_lsp():
-        pytest.skip("basedpyright-langserver is not installed. Please install it to run this test.")
+    file_path = integration_workspace / "src" / "sample.py"
+    client = lsp_manager.get_by_extension(str(file_path), workspace=str(integration_workspace))
+    if client is None:
+        pytest.skip(f"No LSP client available for the given file extension {file_path.suffix}")
 
     model = get_executor_model()
     response = model.invoke("Reply with one word: ok")
