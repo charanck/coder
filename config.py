@@ -1,7 +1,9 @@
 from functools import lru_cache
 from dataclasses import dataclass
 from typing import Literal
+from dotenv import load_dotenv, find_dotenv
 from pydantic import BaseModel
+import os
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +71,7 @@ LSP_EXTENSION_TO_LANGUAGE = {
 
 LSP_SERVER_COMMANDS = {
     "go": ["gopls"],
-    "python": ["basedpyright-langserver", "--stdio"],
+    "python": ["pyright-langserver", "--stdio"],
     "typescript": ["typescript-language-server", "--stdio"],
     "javascript": ["typescript-language-server", "--stdio"],
     "rust": ["rust-analyzer"],
@@ -149,12 +151,7 @@ class Config(BaseModel):
 
 
 def _build_config_from_env(*, emit_summary: bool) -> Config:
-    import os
-
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
+    load_dotenv(find_dotenv())
     planner_model_provider = os.getenv("PLANNER_MODEL_PROVIDER", "google")
     planner_model_name = os.getenv("PLANNER_MODEL_NAME", "gemma-3-31b-it")
     planner_base_url = os.getenv("PLANNER_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")

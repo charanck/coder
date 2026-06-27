@@ -1,7 +1,9 @@
 from pathlib import Path
-from venv import logger
-from config import get_lsp_language_for_extension
+import logging
+from config import get_lsp_language_for_extension, get_lsp_server_command
 from core.client.lsp.client import LSPClient, LSPFactory
+
+logger = logging.getLogger(__name__)
 
 class LSPManager:
     def __init__(self):
@@ -23,7 +25,11 @@ class LSPManager:
         language = get_lsp_language_for_extension(ext)
 
         if not language:
-            logger.warning(f"No LSP configured for files with extension {ext}")
+            raise ValueError(f"No LSP configured for files with extension {ext}")
+
+        server_cmd = get_lsp_server_command(language)
+        if not server_cmd:
+            logger.warning(f"No LSP server command configured for language {language}")
             return None
 
         return self.get(language, workspace)

@@ -16,6 +16,9 @@ class LSPFactory:
         if not server_command:
             raise ValueError(f"No LSP configured for {language}")
 
+        if shutil.which(server_command[0]) is None:
+            return None
+
         client = LSPClient(
             server_command=_resolve_server_command(server_command),
             root_uri=Path(workspace).resolve().as_uri(),

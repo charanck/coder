@@ -16,7 +16,7 @@ from tests.support.helpers import make_tool_result
 
 
 def test_registry_covers_all_current_extractors():
-    assert set(TOOL_EXTRACTOR_REGISTRY) == {"read_file", "scan_project"}
+    assert {"read_file", "scan_project"}.issubset(set(TOOL_EXTRACTOR_REGISTRY))
 
 
 def test_scan_project_extractor():

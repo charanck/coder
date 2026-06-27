@@ -1,5 +1,9 @@
+from __future__ import annotations
 from functools import lru_cache
 from typing import Any, cast
+from pathlib import Path
+import os
+import logging
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -14,10 +18,9 @@ from langgraph.cache.memory import InMemoryCache
 from config import load_config
 from core.common.model import get_planner_model
 from core.model.planner import ImplementationPlan
-from core.tools.files import get_directory_tree, read_file, read_files, list_files, find_files
+from core.tools.files import get_directory_tree, read_file, list_files, find_files
 from core.tools.search import grep, scan_project
-from core.common.middlewares.planner_summarization import PlannerSummarizationMiddleware
-from core.common.middlewares.tool_result_compression import ToolResultCompressionMiddleware  
+
 
 system_prompt = """
 You are an expert Software Architect responsible only for planning software implementation.
@@ -147,7 +150,7 @@ Do not remove existing information.
 Do not change task ids unless required.
 """
 
-tools = [read_file, read_files, list_files, find_files, grep, scan_project, get_directory_tree]
+tools = [read_file, list_files, find_files, grep, scan_project, get_directory_tree]
 planner_cache = InMemoryCache()
 
 
@@ -159,15 +162,6 @@ def get_planner_agent():
     middleware = cast(
         list[AgentMiddleware[Any, None, Any]],
         [
-            # ToolResultCompressionMiddleware(                                      
-            #     keep_last_n=10,
-            # ),
-            PlannerSummarizationMiddleware(                                      
-                model,
-                trigger=[("tokens", 10000), ("messages", 30)],
-                keep=("messages", 20),
-                enable_phase_detection=True,
-            ),
             ModelRetryMiddleware(
                 max_retries=2,
                 backoff_factor=1.5,
@@ -189,7 +183,7 @@ def get_planner_agent():
         ],
     )
 
-    return create_agent(
+    agent = create_agent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
@@ -197,3 +191,33 @@ def get_planner_agent():
         middleware=middleware,
         cache=planner_cache,
     )
+
+    # Auto-install LSP servers for this workspace on first agent initialization.
+    # Can be disabled by setting environment variable NO_AUTO_LSP_INSTALL=1
+    try:
+        from core.tools.lsp_installer import (
+                detect_workspace_languages,
+                build_plan,
+                apply_plan,
+            )
+        workspace_root = str(Path.cwd())
+        langs = detect_workspace_languages(workspace_root)
+        logger = logging.getLogger(__name__)
+        if langs:
+            plan = build_plan(langs)
+            # Only run installers for entries that look like real commands
+            real_commands = {l: c for l, c in plan.items() if not str(c).startswith("No ")}
+            if real_commands:
+                logger.info("Auto-installing LSP servers for detected languages: %s", ", ".join(real_commands.keys()))
+                try:
+                    results = apply_plan(plan, auto_confirm=True)
+                    logger.info("LSP install results: %s", results)
+                except Exception as exc:
+                    logger.exception("LSP auto-install failed: %s", exc)
+        else:
+            logging.getLogger(__name__).info("No supported languages detected for LSP installation.")
+            
+    except Exception:
+        logging.getLogger(__name__).exception("Unexpected error during LSP auto-install step")
+
+    return agent
