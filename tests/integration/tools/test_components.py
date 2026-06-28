@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from core.client.lsp.manager import lsp_manager
-from core.common.model import get_executor_model
+from core.common.model import get_model
 from core.tools.files import extract_read_file, read_file
 from core.tools.search import scan_project
 from config import SUPPORTED_LSP_LANGUAGE_CASES, get_lsp_server_command
@@ -70,7 +70,7 @@ def test_read_file_extractor_real(integration_workspace):
     if client is None:
         pytest.skip(f"No LSP client available for the given file extension {file_path.suffix}")
 
-    model = get_executor_model()
+    model = get_model()
     response = model.invoke("Reply with one word: ok")
     assert str(response.content if hasattr(response, "content") else response).strip()
 

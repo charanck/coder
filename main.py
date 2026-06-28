@@ -3,10 +3,14 @@ from typing import cast
 
 from config import load_config
 from core.agents.planner import get_planner_agent
+from core.agents.planner_graph import invoke_planner
 from core.common.tracing import flush_langfuse_traces, get_langfuse_callback_handler
+from core.tools.tools import ALL_TOOLS, READ_ONLY_TOOLS
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langchain.messages import HumanMessage
+
+from core.model.state import CodingAgentState
 
 
 
@@ -21,23 +25,7 @@ def main():
         invoke_config["callbacks"] = [langfuse_handler]
 
     try:
-        response = asyncio.run(
-            asyncio.wait_for(
-                get_planner_agent().ainvoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=(
-                                    "go through the codebase and give plan for implementing codebase indexing functionality."
-                                )
-                            )
-                        ]
-                    },
-                    config=invoke_config,
-                ),
-                timeout=config.planner_agent_timeout,
-            )
-        )
+        result = example_basic_usage()
     except TimeoutError as exc:
         raise RuntimeError(
             f"Planner agent exceeded the total timeout of {config.planner_agent_timeout} seconds."
@@ -50,7 +38,48 @@ def main():
     finally:
         flush_langfuse_traces()
 
-    print(response)
+    print(result)
+
+def example_basic_usage():
+    langfuse_handler = get_langfuse_callback_handler()
+    
+    # Initialize state with a user request
+    state: CodingAgentState = {
+        "messages": [
+            HumanMessage(content="Plan an implementation for using json for configs instead of loading from .env file")
+        ],
+        "summary": "",
+        "goal": "",
+        "current_task": "",
+        "tasks": [],
+        "workspace": {},
+        "known_facts": [],
+        "artifacts": {},
+        "searches": {},
+        "tool_history": [],
+        "tool_cache": {},
+        "runtime": {
+            "iterations": 0,
+            "max_iterations": 50,
+            "planner_calls": 0,
+            "tool_calls": 0
+        },
+        "state_context": "",
+        "system_prompt": "",
+    }
+    
+    # Create and invoke the planner graph with optional langfuse tracing and tools
+    result = invoke_planner(
+        state,
+        langfuse_handler=langfuse_handler,
+        tools=READ_ONLY_TOOLS
+    )
+    
+    # Access the plan from the final AI message
+    final_message = result["messages"][-1]
+    print(f"Plan generated: {final_message.content}")
+    
+    return result
 
 
 if __name__ == "__main__":

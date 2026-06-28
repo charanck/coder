@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from langchain.tools import tool
-from core.common.model import get_executor_model
+from core.common.model import get_model
 from langchain_core.prompts import ChatPromptTemplate
 from core.tools.registry import register_extractor
 from core.client.lsp.manager import lsp_manager
@@ -117,6 +117,11 @@ def read_file(
     Read a file.
 
     Supports partial reads and returns numbered lines.
+
+    Args:
+        file_path (str): The path to the file to read.
+        start_line (int | None): The starting line number (1-based). If None, starts from the beginning.
+        end_line (int | None): The ending line number (1-based). If None, reads to the end of the file.
     """
 
     try:
@@ -212,7 +217,7 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 
         parse_lsp_symbols(raw_symbols)
 
-        model = get_executor_model()
+        model = get_model()
         prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
@@ -289,6 +294,13 @@ def list_files(
     """List directory file layouts and structures returning relative pathways.
 
     Use this structural verification tracking resource before attempting downstream file sweeps.
+
+    Args:
+        directory_path (str): The path to the directory to list.
+        recursive (bool): Whether to list files recursively. Defaults to False.
+        include_hidden (bool): Whether to include hidden files and directories. Defaults to False.
+        ignore_patterns (Optional[list[str]]): List of glob patterns to ignore. Defaults to None.
+        max_results (int): Maximum number of results to return before truncation. Defaults to 400.
     """
     try:
         root = Path(directory_path).resolve()
@@ -430,6 +442,13 @@ def find_files(
 
     Examples: '*.py', 'test_*.go', 'config.json', 'index.ts'
     Use this tool when locating specific files across complex codebase trees.
+
+    Args:
+        pattern (str): The glob pattern to match files against.
+        root (str): The root directory to start the search from. Defaults to the current directory.
+        include_hidden (bool): Whether to include hidden files and directories in the search. Defaults to False.
+        ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the search. Defaults to None.
+        max_results (int): Maximum number of results to return before truncation. Defaults to 250.
     """
     try:
         root_path = Path(root).resolve()
@@ -557,6 +576,12 @@ def get_directory_tree(
     """Return an ASCII visual tree layout representation of a directory structure.
 
     Use this tool to evaluate unfamiliar subfolder landscapes and quickly spot project layouts.
+
+    Args:
+        root (str): The root directory to start the tree visualization from. Defaults to the current directory.
+        max_depth (int): The maximum depth of recursion for the tree. Defaults to 3.
+        include_hidden (bool): Whether to include hidden files and directories in the tree. Defaults to False.
+        ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the tree generation. Defaults to None.
     """
     try:
         # Standard fallbacks for isolated cross-language analysis

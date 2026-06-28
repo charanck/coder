@@ -2,8 +2,19 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Debug main.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
       "name": "Debug Unit Tests",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "pytest",
       "args": [
@@ -15,7 +26,7 @@
     },
     {
       "name": "Debug Current Unit Test File",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "pytest",
       "args": [

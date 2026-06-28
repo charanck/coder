@@ -27,8 +27,8 @@ def save_tool_cache(state: CodingAgentState, tool_name: str, tool_args: dict[str
         "timestamp": datetime.now().isoformat()
     }
 
-def tool_node(state: CodingAgentState, runnable_config: RunnableConfig | None = None) -> dict[str, Any]:
-    available_tools = tools_from_runnable_config(runnable_config)
+def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]:
+    available_tools = tools_from_runnable_config(config)
     tools_to_run = tools_to_run_from_history(state)
     
     # Map tool names to their execution functions/objects
@@ -75,6 +75,11 @@ def tool_node(state: CodingAgentState, runnable_config: RunnableConfig | None = 
             
             # Formulating output message (str convert ensure validation handles cleanly)
             content = str(result.content) if hasattr(result, "content") else str(result)
+            
+            # Ensure content is never None, empty, or whitespace-only
+            if not content or not content.strip():
+                content = f"Tool '{tool_name}' executed successfully with no output."
+            
             extractor = TOOL_EXTRACTOR_REGISTRY.get(tool_name)
             if extractor:
                 try:
@@ -98,6 +103,10 @@ def tool_node(state: CodingAgentState, runnable_config: RunnableConfig | None = 
             successful = False
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
+        
+        # Ensure content is always a valid non-empty string for Jinja template rendering
+        if not isinstance(content, str) or not content.strip():
+            content = f"Tool '{tool_name}' executed (no output available)."
         
         # 1. Append the ToolMessage structured execution result
         new_messages.append(ToolMessage(content=content, tool_call_id=tool_id, name=tool_name))

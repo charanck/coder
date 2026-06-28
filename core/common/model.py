@@ -6,36 +6,19 @@ from langchain_openai import ChatOpenAI
 from config import load_config
 
 
-def get_planner_model() -> BaseChatModel:
-    """Get the planner model based on the configuration."""
+def get_model() -> BaseChatModel:
+    """Get the model based on the configuration."""
     config = load_config()
 
-    if config.planner_model.model_provider == "google":
+    if config.model.model_provider == "google":
         return ChatGoogleGenerativeAI(
-            model=config.planner_model.model_name,
-            api_key=SecretStr(config.planner_model.api_key),
-            timeout=config.planner_timeout
+            model=config.model.model_name,
+            api_key=SecretStr(config.model.api_key),
+            timeout=config.model_timeout
         )
     return ChatOpenAI(
-            model=config.planner_model.model_name,
-            base_url=config.planner_model.base_url,
-            api_key=SecretStr(config.planner_model.api_key),
-            timeout=config.planner_timeout
-        )
-
-def get_executor_model() -> BaseChatModel:
-    """Get the executor model based on the configuration."""
-    config = load_config()
-
-    if config.executor_model.model_provider == "google":
-        return ChatGoogleGenerativeAI(
-            model=config.executor_model.model_name,
-            api_key=SecretStr(config.executor_model.api_key),
-            timeout=config.executor_timeout
-        )
-    return ChatOpenAI(
-            model=config.executor_model.model_name,
-            base_url=config.executor_model.base_url,
-            api_key=SecretStr(config.executor_model.api_key),
-            timeout=config.executor_timeout
+            model=config.model.model_name,
+            base_url=config.model.base_url,
+            api_key=SecretStr(config.model.api_key),
+            timeout=config.model_timeout
         )

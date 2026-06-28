@@ -217,6 +217,11 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
     """Search for a regex pattern in a file and return matching lines with line numbers.
 
     Use this tool to find specific references, declarations, or functions inside a target file.
+
+    Args:
+        pattern (str): The regex pattern to search for.
+        file_path (str): The path to the file to search.
+        max_matches (int): Maximum number of matches to return before truncation.
     """
     try:
         path = Path(file_path)
@@ -281,51 +286,3 @@ def extract_grep(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         }
     }
 
-
-# @tool
-# def grep_in_project(pattern: str, root: str = ".", include_hidden: bool = False) -> dict[str, list[str]]:
-    """
-    Search for a pattern in all files of a project and return matching lines.
-
-    Args:
-        pattern (str): The regex pattern to search for.
-        root (str): The root directory of the project to be searched.
-        include_hidden (bool): Whether to include hidden files and directories.
-
-    Returns:
-        dict: A dictionary where keys are file paths and values are lists of matching lines.
-    """
-    matches = {}
-    try:
-        root_path = Path(root)
-
-        if not root_path.is_dir():
-            raise ValueError(f"'{root_path}' is not a directory.")
-
-        for current_root, dirs, files in os.walk(root_path):
-            dirs[:] = sorted(
-                d
-                for d in dirs
-                if not should_ignore(d, include_hidden)
-            )
-
-            for file in files:
-                if should_ignore(file, include_hidden):
-                    continue
-
-                file_path = Path(current_root) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        lines = f.readlines()
-
-                    file_matches = [line for line in lines if re.search(pattern, line)]
-                    if file_matches:
-                        matches[str(file_path)] = file_matches
-
-                except Exception as e:
-                    matches[str(file_path)] = [f"Error reading file: {e}"]
-
-        return matches
-
-    except Exception as e:
-        raise ValueError(f"Error searching project: {e}")

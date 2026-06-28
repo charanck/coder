@@ -66,3 +66,9 @@ class CodingAgentState(TypedDict):
     #     "iterations": int, "max_iterations": int, 
     #     "planner_calls": int, "tool_calls": int 
     # }
+    
+    # ==========================================
+    # CONTEXT & PROMPTS
+    # ==========================================
+    system_prompt: str  # System prompt to inject into messages
+    state_context: str  # Formatted state context from CodingAgentState

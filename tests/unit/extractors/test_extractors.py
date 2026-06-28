@@ -59,7 +59,7 @@ def test_read_file_extractor_uses_language_routed_lsp(case, tmp_path):
     fake_model = RunnableLambda(lambda _payload: SimpleNamespace(content="Concise summary."))
 
     with patch("core.tools.files.lsp_manager.get_by_extension", return_value=fake_lsp_client) as get_client, patch(
-        "core.tools.files.get_executor_model", return_value=fake_model
+        "core.tools.files.get_model", return_value=fake_model
     ):
         updates = extract_read_file(result, {"path": str(file_path)})
 

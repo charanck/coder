@@ -132,59 +132,41 @@ class LangfuseConfig(BaseModel):
 
 class Config(BaseModel):
     """Configuration for the application."""
-    planner_model: ModelConfig = ModelConfig(
+    model: ModelConfig = ModelConfig(
         model_name="gemma-3-31b-it",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key="your-api-key-here"
-    ) # Model configuration for the planner
-    executor_model: ModelConfig = ModelConfig(
-        model_name="gemma-3-27b-it",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        api_key="your-api-key-here"
-    ) # Model configuration for the executor
+    ) # Model configuration
     langfuse: LangfuseConfig = LangfuseConfig()
-    planner_timeout: int = 60 * 5  # Timeout for planner in seconds
+    model_timeout: int = 60 * 5  # Timeout for model calls in seconds
     planner_step_timeout: int = 60  # Per-step timeout for the planner agent in seconds
     planner_agent_timeout: int = 60 * 2  # Total timeout for the planner agent in seconds
     planner_tool_call_limit: int = 20  # Maximum number of tool calls allowed per planner run
-    executor_timeout: int = 60 * 10  # Timeout for executor in seconds
 
 
 def _build_config_from_env(*, emit_summary: bool) -> Config:
     load_dotenv(find_dotenv())
-    planner_model_provider = os.getenv("PLANNER_MODEL_PROVIDER", "google")
-    planner_model_name = os.getenv("PLANNER_MODEL_NAME", "gemma-3-31b-it")
-    planner_base_url = os.getenv("PLANNER_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    planner_api_key = os.getenv("PLANNER_API_KEY", "your-api-key-here")
-
-    executor_model_provider = os.getenv("EXECUTOR_MODEL_PROVIDER", "google")
-    executor_model_name = os.getenv("EXECUTOR_MODEL_NAME", "gemma-3-27b-it")
-    executor_base_url = os.getenv("EXECUTOR_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    executor_api_key = os.getenv("EXECUTOR_API_KEY", "your-api-key-here")
+    model_provider = os.getenv("MODEL_PROVIDER", "google")
+    model_name = os.getenv("MODEL_NAME", "gemma-3-31b-it")
+    base_url = os.getenv("BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+    api_key = os.getenv("API_KEY", "your-api-key-here")
 
     langfuse_enabled = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
     langfuse_public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
     langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY", "")
     langfuse_base_url = os.getenv("LANGFUSE_BASE_URL", "http://localhost:3000")
 
-    planner_timeout = int(os.getenv("PLANNER_TIMEOUT", 60 * 10))
+    model_timeout = int(os.getenv("MODEL_TIMEOUT", 60 * 10))
     planner_step_timeout = int(os.getenv("PLANNER_STEP_TIMEOUT", 60 * 10))
     planner_agent_timeout = int(os.getenv("PLANNER_AGENT_TIMEOUT", 60 * 10))
     planner_tool_call_limit = int(os.getenv("PLANNER_TOOL_CALL_LIMIT", 200))
-    executor_timeout = int(os.getenv("EXECUTOR_TIMEOUT", 60 * 10))
 
     config = Config(
-        planner_model=ModelConfig(
-            model_provider=planner_model_provider,  # type: ignore
-            model_name=planner_model_name,
-            base_url=planner_base_url,
-            api_key=planner_api_key,
-        ),
-        executor_model=ModelConfig(
-            model_provider=executor_model_provider,  # type: ignore
-            model_name=executor_model_name,
-            base_url=executor_base_url,
-            api_key=executor_api_key,
+        model=ModelConfig(
+            model_provider=model_provider,  # type: ignore
+            model_name=model_name,
+            base_url=base_url,
+            api_key=api_key,
         ),
         langfuse=LangfuseConfig(
             enabled=langfuse_enabled,
@@ -192,22 +174,20 @@ def _build_config_from_env(*, emit_summary: bool) -> Config:
             secret_key=langfuse_secret_key,
             base_url=langfuse_base_url,
         ),
-        planner_timeout=planner_timeout,
+        model_timeout=model_timeout,
         planner_step_timeout=planner_step_timeout,
         planner_agent_timeout=planner_agent_timeout,
         planner_tool_call_limit=planner_tool_call_limit,
-        executor_timeout=executor_timeout,
     )
 
     if emit_summary:
         print("Configuration loaded successfully.")
         print(
             {
-                "planner_timeout": config.planner_timeout,
+                "model_timeout": config.model_timeout,
                 "planner_step_timeout": config.planner_step_timeout,
                 "planner_agent_timeout": config.planner_agent_timeout,
                 "planner_tool_call_limit": config.planner_tool_call_limit,
-                "executor_timeout": config.executor_timeout,
                 "langfuse_enabled": config.langfuse.enabled,
                 "langfuse_base_url": config.langfuse.base_url,
             }
@@ -219,24 +199,17 @@ def _build_config_from_env(*, emit_summary: bool) -> Config:
 def load_unit_test_config() -> Config:
     """Load a fast, deterministic config for unit tests."""
     return Config(
-        planner_model=ModelConfig(
+        model=ModelConfig(
             model_provider="local",
-            model_name="unit-test-planner",
-            base_url="http://localhost:11434/v1",
-            api_key="unit-test-api-key",
-        ),
-        executor_model=ModelConfig(
-            model_provider="local",
-            model_name="unit-test-executor",
+            model_name="unit-test-model",
             base_url="http://localhost:11434/v1",
             api_key="unit-test-api-key",
         ),
         langfuse=LangfuseConfig(),
-        planner_timeout=5,
+        model_timeout=5,
         planner_step_timeout=5,
         planner_agent_timeout=15,
         planner_tool_call_limit=5,
-        executor_timeout=5,
     )
 
 
