@@ -151,6 +151,7 @@ def read_file(
         return f"Error reading file: {e}"
 
 @register_extractor("read_file")
+@langfuse_observe
 def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Extracts file content metadata using LSP for structural data and invariant 
     generation, reserving the LLM strictly for high-level semantic summarization.
@@ -352,6 +353,7 @@ def list_files(
         return FileListResult(directory_path=directory_path, error=f"Unexpected layout exploration crash: {str(e)}")
 
 @register_extractor("list_files")
+@langfuse_observe
 def extract_list_files(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Intercepts file list outputs to register persistent structural layout mapping schemas 
 
@@ -496,6 +498,7 @@ def find_files(
         return FindFilesResult(pattern=pattern, root_path=root, error=str(e))
 
 @register_extractor("find_files")
+@langfuse_observe
 def extract_find_files(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Intercepts file glob pattern discovery outputs to log search actions 
 
@@ -676,6 +679,7 @@ def get_directory_tree(
         return DirectoryTreeResult(root_path=root, tree_string="", error=str(e))
     
 @register_extractor("get_directory_tree")
+@langfuse_observe
 def extract_get_directory_tree(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Intercepts visual tree compilation data to inject deep structural topology maps 
 

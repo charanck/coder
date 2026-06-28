@@ -135,6 +135,7 @@ def scan_project(
         raise ValueError(f"Error scanning project layout: {str(e)}")
                          
 @register_extractor("scan_project")
+@langfuse_observe
 def extract_scan_project(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
@@ -272,6 +273,7 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
         return GrepResult(pattern=pattern, file_path=file_path, error=f"Error reading file: {str(e)}")
 
 @register_extractor("grep")
+@langfuse_observe
 def extract_grep(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """Extracts structural matches from a grep invocation and logs them 
 
