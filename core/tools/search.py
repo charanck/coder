@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 import fnmatch
 from typing import Any, Dict, List
 from core.model.search import ProjectSummary
+from core.model.state import CodingAgentState
 from core.tools.files import DEFAULT_IGNORE_PATTERNS
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -136,7 +137,7 @@ def scan_project(
                          
 @register_extractor("scan_project")
 @langfuse_observe
-def extract_scan_project(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_scan_project(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
     if hasattr(result, "model_dump"):
@@ -274,7 +275,7 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
 
 @register_extractor("grep")
 @langfuse_observe
-def extract_grep(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_grep(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Extracts structural matches from a grep invocation and logs them 
 
     into historical searches and artifact tracking layers.

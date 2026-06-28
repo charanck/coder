@@ -4,6 +4,11 @@ from langchain_core.messages import BaseMessage
 
 class CodingAgentState(TypedDict):
     # ==========================================
+    # PROJECT CONFIGURATION
+    # ==========================================
+    project_root: str  # The root directory of the project (where the agent is started from)
+    
+    # ==========================================
     # CONVERSATION STATE
     # ==========================================
     messages: Annotated[list[BaseMessage], add]

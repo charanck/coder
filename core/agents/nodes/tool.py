@@ -118,7 +118,7 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
             extractor = TOOL_EXTRACTOR_REGISTRY.get(tool_name)
             if extractor:
                 try:
-                    updates = extractor(result, tool_args)
+                    updates = extractor(result, tool_args, state)
                     # Apply changes safely to state trackers
                     if "workspace_update" in updates:
                         workspace.update(updates["workspace_update"])

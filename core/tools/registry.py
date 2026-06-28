@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
+
+from core.model.state import CodingAgentState
 
 
-ExtractorFunc = Callable[[Any, Dict[str, Any]], Dict[str, Any]]
+ExtractorFunc = Callable[[Any, Dict[str, Any], Optional[CodingAgentState]], Dict[str, Any]]
 
 TOOL_EXTRACTOR_REGISTRY: Dict[str, ExtractorFunc] = {}
 

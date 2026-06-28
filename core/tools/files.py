@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 from langchain.tools import tool
 from core.common.model import get_model
 from langchain_core.prompts import ChatPromptTemplate
+from core.model.state import CodingAgentState
 from core.tools.registry import register_extractor
 from core.client.lsp.manager import lsp_manager
 from core.common.tracing import langfuse_observe
@@ -152,11 +153,22 @@ def read_file(
 
 @register_extractor("read_file")
 @langfuse_observe
-def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Extracts file content metadata using LSP for structural data and invariant 
     generation, reserving the LLM strictly for high-level semantic summarization.
+    
+    Args:
+        result: The tool execution result
+        args: Tool arguments
+        state: Optional CodingAgentState containing project_root
     """
+    MAX_SUMMARIZATION_CHARS = 12000
+    MAX_SYMBOLS_FOR_SUMMARY = 100
+    MAX_FACTS_FOR_SUMMARY = 50
+
     file_path = args.get("path") or args.get("file_path") or "unknown"
+    logger.info(f"[extract_read_file] Processing file: {file_path}")
+    
     raw_content = str(result.content) if hasattr(result, "content") else str(result)
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -165,14 +177,40 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     parsed_symbols = []
 
     try:
-        workspace_dir = str(Path(file_path).parent)
+        # Use project_root from state if available, otherwise fall back to finding it
+        workspace_dir = state.get("project_root") if state else None
+        
+        if not workspace_dir:
+            logger.debug("[extract_read_file] project_root not in state, falling back to discovery")
+            workspace_dir = state["project_root"] if state and "project_root" in state else str(Path(file_path).resolve().parent)
+        
+        logger.info(f"[extract_read_file] Project root: {workspace_dir}")
+        
         lsp_client = lsp_manager.get_by_extension(file_path, workspace=workspace_dir)
+        logger.info(f"[extract_read_file] LSP client created: {lsp_client is not None}")
 
         if lsp_client is None:
             # TODO: as fallback we should extract symbols using regex or a simple parser for known languages or use llm to extract symbols if lsp is not available
             raise RuntimeError(f"No LSP client available for the file extension of '{file_path}'")
 
-        raw_symbols = lsp_client.extract_document_symbols(str(Path(file_path).resolve().as_uri())) or []
+        file_uri = str(Path(file_path).resolve().as_uri())
+        logger.debug(f"[extract_read_file] Requesting symbols for URI: {file_uri}")
+        
+        raw_symbols = lsp_client.extract_document_symbols(file_uri) or []
+        logger.info(f"[extract_read_file] Extracted {len(raw_symbols)} top-level symbols")
+        logger.debug(f"[extract_read_file] Raw symbols: {raw_symbols}")
+
+        def get_symbol_range(sym: dict) -> dict:
+            if "range" in sym:
+                return sym["range"]
+
+            if "location" in sym:
+                return sym["location"].get("range", {})
+
+            if "selectionRange" in sym:
+                return sym["selectionRange"]
+
+            return {}
         
         def parse_lsp_symbols(symbols: list[dict], parent_name: str = ""):
             for sym in symbols:
@@ -180,7 +218,7 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
                 kind_id = sym.get("kind", 0)
                 kind_name = LSP_SYMBOL_KIND_MAP.get(kind_id, f"Unknown({kind_id})")
                 
-                sym_range = sym.get("range", {})
+                sym_range = get_symbol_range(sym)
                 start_line = sym_range.get("start", {}).get("line", 0) + 1
                 end_line = sym_range.get("end", {}).get("line", 0) + 1
                 
@@ -208,24 +246,105 @@ def extract_read_file(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 
         parse_lsp_symbols(raw_symbols)
 
+        language = Path(file_path).suffix.lstrip(".") or "unknown"
+
+        symbol_context = "\n".join(
+            f"- {s['kind']}: {s['identity']} ({s['start_line']}-{s['end_line']})"
+            for s in parsed_symbols[:MAX_SYMBOLS_FOR_SUMMARY]
+        )
+
+        facts_context = "\n".join(
+            f"- {fact}"
+            for fact in lsp_facts[:MAX_FACTS_FOR_SUMMARY]
+        )
+
+        content_for_summary = raw_content
+
+        if len(content_for_summary) > MAX_SUMMARIZATION_CHARS:
+            omitted = len(content_for_summary) - MAX_SUMMARIZATION_CHARS
+            content_for_summary = (
+                content_for_summary[:MAX_SUMMARIZATION_CHARS]
+                + f"\n\n... [{omitted} characters truncated] ..."
+            )
+
         model = get_model()
-        prompt = ChatPromptTemplate.from_messages([
-            (
-                "system",
-                "You are a core architecture analyzer. Review the provided source code and write a highly concise, "
-                "1-2 sentence functional summary describing its business logic and architectural purpose.\n"
-                "DO NOT include markdown, code blocks, lists, or structural metadata. Return ONLY the plain text summary."
-            ),
-            ("human", "File Path: {file_path}\n\nContent:\n{content}")
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+                            [
+                                (
+                                    "system",
+                                    """
+                        You are an expert software architect.
+
+                        You are given:
+
+                        - the programming language
+                        - the file path
+                        - symbols extracted from the language server
+                        - structural facts extracted from the language server
+                        - part of the source code
+
+                        The symbols and structural facts are authoritative.
+
+                        Write a concise 2-3 sentence summary describing:
+
+                        1. The architectural purpose of the file.
+                        2. Its primary responsibilities.
+                        3. How it interacts with the rest of the system (if apparent).
+
+                        Focus on intent and behavior.
+
+                        Do NOT:
+
+                        - explain syntax
+                        - list every function
+                        - mention line numbers
+                        - repeat the symbol list
+                        - use markdown
+
+                        Return only the summary as plain text.
+                        """,
+                                ),
+                                (
+                                    "human",
+                                    """
+                        Language:
+                        {language}
+
+                        File:
+                        {file_path}
+
+                        Detected Symbols:
+                        {symbols}
+
+                        Structural Facts:
+                        {facts}
+
+                        Source Code:
+                        {content}
+                        """,
+                                ),
+                            ]
+                        )
         
         chain = prompt | model
-        response = chain.invoke({"file_path": file_path, "content": raw_content})
+        response = chain.invoke(
+            {
+                "language": language,
+                "file_path": file_path,
+                "symbols": symbol_context or "No symbols detected.",
+                "facts": facts_context or "No structural facts detected.",
+                "content": content_for_summary,
+            }
+        )
         response_content = response.content if hasattr(response, "content") else response
         file_summary = str(response_content).strip()
+        logger.info(f"[extract_read_file] LLM summary generated: {file_summary[:100]}...")
 
     except Exception as e:
+        logger.exception(f"[extract_read_file] Error during extraction: {str(e)}")
         file_summary = f"Systematic analysis completed with degradation. Error mapping structural layout: {str(e)}"
+
+    logger.info(f"[extract_read_file] Extraction complete. Symbols found: {len(parsed_symbols)}, Facts: {len(lsp_facts)}")
 
     workspace_payload = {
         "full_content": raw_content,
@@ -354,7 +473,7 @@ def list_files(
 
 @register_extractor("list_files")
 @langfuse_observe
-def extract_list_files(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_list_files(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Intercepts file list outputs to register persistent structural layout mapping schemas 
 
     into out-of-band workspace metrics caches.
@@ -499,7 +618,7 @@ def find_files(
 
 @register_extractor("find_files")
 @langfuse_observe
-def extract_find_files(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_find_files(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Intercepts file glob pattern discovery outputs to log search actions 
 
     and seed structural workspace tracking indexes.
@@ -680,7 +799,7 @@ def get_directory_tree(
     
 @register_extractor("get_directory_tree")
 @langfuse_observe
-def extract_get_directory_tree(result: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def extract_directory_tree(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Intercepts visual tree compilation data to inject deep structural topology maps 
 
     directly inside out-of-band agent workspace caches.

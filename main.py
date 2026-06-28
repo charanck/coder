@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import cast
+from pathlib import Path
 
 from config import load_config
 from core.agents.planner import get_planner_agent
@@ -55,6 +56,7 @@ def example_basic_usage():
     
     # Initialize state with a user request
     state: CodingAgentState = {
+        "project_root": str(Path.cwd()),
         "messages": [
             HumanMessage(content="go through the tool node implementation and without breaking anything if there is anything to be improved improve and also while adding the tool output to the message history need to truncate it to reduce context count")
         ],
