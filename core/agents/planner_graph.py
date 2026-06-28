@@ -141,24 +141,18 @@ def should_continue(state: CodingAgentState) -> Literal["tools", "end"]:
 
 @langfuse_observe
 def create_planner_graph(
-    checkpointer: Any | None = None,
-    auto_install_lsp: bool = True
+    checkpointer: Any | None = None
 ) -> CompiledStateGraph:
     """
     Create the planner agent graph.
     
     Args:
         checkpointer: Optional checkpointer for persistence (defaults to MemorySaver)
-        auto_install_lsp: Whether to auto-install LSP servers on initialization
     
     Returns:
         Compiled StateGraph ready for invocation
     """
-    logger.info(f"Creating planner graph with auto_install_lsp={auto_install_lsp}")
-    
-    # Auto-install LSP servers if enabled
-    if auto_install_lsp:
-        _auto_install_lsp_servers()
+    logger.info("Creating planner graph")
     
     # Create the graph
     graph = StateGraph(CodingAgentState)
@@ -187,43 +181,7 @@ def create_planner_graph(
     logger.debug("Planner graph compiled successfully")
     return graph.compile(checkpointer=checkpointer)
 
-def _auto_install_lsp_servers() -> None:
-    """Auto-install LSP servers for detected workspace languages."""
-    try:
-        from core.tools.lsp_installer import (
-            detect_workspace_languages,
-            build_plan,
-            apply_plan,
-        )
-        
-        workspace_root = str(Path.cwd())
-        langs = detect_workspace_languages(workspace_root)
-        logger = logging.getLogger(__name__)
-        
-        if langs:
-            plan = build_plan(langs)
-            real_commands = {
-                l: c for l, c in plan.items() 
-                if not str(c).startswith("No ")
-            }
-            
-            if real_commands:
-                logger.info(
-                    "Auto-installing LSP servers for detected languages: %s", 
-                    ", ".join(real_commands.keys())
-                )
-                try:
-                    results = apply_plan(plan, auto_confirm=True)
-                    logger.info("LSP install results: %s", results)
-                except Exception as exc:
-                    logger.exception("LSP auto-install failed: %s", exc)
-        else:
-            logger.info("No supported languages detected for LSP installation.")
-            
-    except Exception:
-        logging.getLogger(__name__).exception(
-            "Unexpected error during LSP auto-install step"
-        )
+
 
 @langfuse_observe
 def invoke_planner(

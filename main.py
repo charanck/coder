@@ -58,7 +58,7 @@ def example_basic_usage():
     state: CodingAgentState = {
         "project_root": str(Path.cwd()),
         "messages": [
-            HumanMessage(content="go through the tool node implementation and without breaking anything if there is anything to be improved improve and also while adding the tool output to the message history need to truncate it to reduce context count")
+            HumanMessage(content="need to add tool output truncation to reduce context window usage")
         ],
         "summary": "",
         "goal": "",

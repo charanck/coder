@@ -275,34 +275,6 @@ def get_planner_agent():
         cache=planner_cache,
     )
 
-    # Auto-install LSP servers for this workspace on first agent initialization.
-    # Can be disabled by setting environment variable NO_AUTO_LSP_INSTALL=1
-    try:
-        from core.tools.lsp_installer import (
-                detect_workspace_languages,
-                build_plan,
-                apply_plan,
-            )
-        workspace_root = str(Path.cwd())
-        langs = detect_workspace_languages(workspace_root)
-        logger = logging.getLogger(__name__)
-        if langs:
-            plan = build_plan(langs)
-            # Only run installers for entries that look like real commands
-            real_commands = {l: c for l, c in plan.items() if not str(c).startswith("No ")}
-            if real_commands:
-                logger.info("Auto-installing LSP servers for detected languages: %s", ", ".join(real_commands.keys()))
-                try:
-                    results = apply_plan(plan, auto_confirm=True)
-                    logger.info("LSP install results: %s", results)
-                except Exception as exc:
-                    logger.exception("LSP auto-install failed: %s", exc)
-        else:
-            logging.getLogger(__name__).info("No supported languages detected for LSP installation.")
-            
-    except Exception:
-        logging.getLogger(__name__).exception("Unexpected error during LSP auto-install step")
-
     return agent
 
 

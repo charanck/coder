@@ -266,7 +266,7 @@ class TestCreatePlannerGraph:
     
     def test_creates_valid_graph(self):
         """Should create a compiled graph."""
-        graph = create_planner_graph(auto_install_lsp=False)
+        graph = create_planner_graph()
         
         # Should be compiled and ready to invoke
         assert graph is not None
@@ -276,7 +276,7 @@ class TestCreatePlannerGraph:
     
     def test_graph_has_correct_nodes(self):
         """Graph should have the expected nodes."""
-        graph = create_planner_graph(auto_install_lsp=False)
+        graph = create_planner_graph()
         
         # Check node names (this is implementation-dependent)
         # The graph should have inject_context, llm, and tools nodes
@@ -293,27 +293,15 @@ class TestCreatePlannerGraph:
         checkpointer = MemorySaver()
         graph = create_planner_graph(
             checkpointer=checkpointer,
-            auto_install_lsp=False
         )
         
         assert graph is not None
     
-    def test_auto_install_lsp_can_be_disabled(self):
-        """Should respect auto_install_lsp=False."""
-        # Should not raise even if LSP tools aren't available
-        graph = create_planner_graph(auto_install_lsp=False)
-        assert graph is not None
-
-
-class TestGraphIntegration:
-    """Integration tests for the full graph."""
-    
-    @pytest.mark.integration
-    def test_graph_completes_simple_request(self, minimal_state):
-        """Graph should complete execution for a simple request."""
+    def test_graph_creates_successfully(self):
+        """Graph creation should succeed without LSP auto-install."""
         from core.agents.planner_graph import create_planner_graph
         
-        graph = create_planner_graph(auto_install_lsp=False)
+        graph = create_planner_graph()
         
         # This would normally call the LLM, so we mark it as integration test
         # In a real test, you'd mock the LLM
@@ -330,7 +318,7 @@ class TestGraphIntegration:
         """Graph should support streaming execution."""
         from core.agents.planner_graph import create_planner_graph
         
-        graph = create_planner_graph(auto_install_lsp=False)
+        graph = create_planner_graph()
         
         try:
             chunks = []
