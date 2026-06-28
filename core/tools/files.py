@@ -2,6 +2,7 @@ from __future__ import annotations
 import datetime
 import fnmatch
 import os
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from langchain.tools import tool
@@ -9,7 +10,10 @@ from core.common.model import get_model
 from langchain_core.prompts import ChatPromptTemplate
 from core.tools.registry import register_extractor
 from core.client.lsp.manager import lsp_manager
+from core.common.tracing import langfuse_observe
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 # Mapping standard LSP SymbolKind integers to human-readable identifiers
@@ -87,6 +91,7 @@ def _format_lines(
     )
 
 @tool
+@langfuse_observe
 def read_file(
     file_path: str,
     start_line: int | None = None,
@@ -102,14 +107,17 @@ def read_file(
         start_line (int | None): The starting line number (1-based). If None, starts from the beginning.
         end_line (int | None): The ending line number (1-based). If None, reads to the end of the file.
     """
+    logger.debug(f"Reading file: {file_path}, lines {start_line}-{end_line}")
 
     try:
         path = Path(file_path)
 
         if not path.exists():
+            logger.warning(f"File not found: {file_path}")
             return f"Error: File '{file_path}' does not exist."
 
         if not path.is_file():
+            logger.warning(f"Path is not a file: {file_path}")
             return f"Error: '{file_path}' is not a file."
 
         with path.open(
@@ -125,9 +133,11 @@ def read_file(
         end = total if end_line is None else min(total, end_line)
 
         if start > end:
+            logger.error(f"Invalid line range: {start}-{end}")
             return "Error: Invalid line range."
 
         selected = lines[start - 1 : end]
+        logger.info(f"Read file {file_path}: lines {start}-{end} of {total}")
 
         return (
             f"File: {path}\n"
@@ -137,6 +147,7 @@ def read_file(
         )
 
     except Exception as e:
+        logger.exception(f"Error reading file: {file_path}")
         return f"Error reading file: {e}"
 
 @register_extractor("read_file")
@@ -263,6 +274,7 @@ class FileListResult(BaseModel):
         return "\n".join(lines)
 
 @tool
+@langfuse_observe
 def list_files(
     directory_path: str,
     recursive: bool = False,
@@ -281,9 +293,12 @@ def list_files(
         ignore_patterns (Optional[list[str]]): List of glob patterns to ignore. Defaults to None.
         max_results (int): Maximum number of results to return before truncation. Defaults to 400.
     """
+    logger.debug(f"Listing files in {directory_path}, recursive={recursive}, max_results={max_results}")
+    
     try:
         root = Path(directory_path).resolve()
         if not root.is_dir():
+            logger.warning(f"Not a directory: {directory_path}")
             return FileListResult(directory_path=directory_path, error=f"'{directory_path}' is not a directory.")
 
         patterns = set(ignore_patterns or [])
@@ -326,11 +341,14 @@ def list_files(
                         e_type = "directory" if child.is_dir() else "file"
                         results.append(FileEntry(path=child.name, type=e_type))
             except PermissionError:
+                logger.error(f"Permission denied accessing {directory_path}")
                 return FileListResult(directory_path=directory_path, error=f"Permission denied accessing path workspace location.")
 
+        logger.info(f"Listed files in {directory_path}: total {total_count}, showing {len(results)}")
         return FileListResult(directory_path=str(root), entries=results, total_count=total_count)
 
     except Exception as e:
+        logger.exception(f"Error listing files in {directory_path}")
         return FileListResult(directory_path=directory_path, error=f"Unexpected layout exploration crash: {str(e)}")
 
 @register_extractor("list_files")
@@ -410,6 +428,7 @@ class FindFilesResult(BaseModel):
 
 
 @tool
+@langfuse_observe
 def find_files(
     pattern: str,
     root: str = ".",
@@ -429,9 +448,12 @@ def find_files(
         ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the search. Defaults to None.
         max_results (int): Maximum number of results to return before truncation. Defaults to 250.
     """
+    logger.debug(f"Finding files: pattern={pattern}, root={root}, max_results={max_results}")
+    
     try:
         root_path = Path(root).resolve()
         if not root_path.is_dir():
+            logger.warning(f"Invalid directory: {root}")
             return FindFilesResult(pattern=pattern, root_path=root, error=f"'{root}' is not a valid directory.")
 
         custom_ignores = set(ignore_patterns or [])
@@ -460,6 +482,8 @@ def find_files(
                     if len(matches) < max_results:
                         matches.append(rel_file_str)
 
+        logger.info(f"Found {total_found} files matching pattern '{pattern}' (showing {len(matches)})")
+        
         return FindFilesResult(
             pattern=pattern,
             root_path=str(root_path),
@@ -468,6 +492,7 @@ def find_files(
         )
 
     except Exception as e:
+        logger.exception(f"Error finding files with pattern {pattern}")
         return FindFilesResult(pattern=pattern, root_path=root, error=str(e))
 
 @register_extractor("find_files")
@@ -546,6 +571,7 @@ class DirectoryTreeResult(BaseModel):
 
 
 @tool
+@langfuse_observe
 def get_directory_tree(
     root: str = ".",
     max_depth: int = 3,
@@ -562,6 +588,8 @@ def get_directory_tree(
         include_hidden (bool): Whether to include hidden files and directories in the tree. Defaults to False.
         ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the tree generation. Defaults to None.
     """
+    logger.debug(f"Generating directory tree: root={root}, max_depth={max_depth}")
+    
     try:
         # Standard fallbacks for isolated cross-language analysis
         TREE_DEFAULT_IGNORE = {
@@ -570,8 +598,10 @@ def get_directory_tree(
         }
         root_path = Path(root).resolve()
         if not root_path.exists():
+            logger.warning(f"Path does not exist: {root}")
             return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' does not exist.")
         if not root_path.is_dir():
+            logger.warning(f"Path is not a directory: {root}")
             return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' is not a directory.")
 
         # Compute ignore policies

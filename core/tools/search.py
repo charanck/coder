@@ -2,6 +2,7 @@ import datetime
 import re
 import os
 import collections
+import logging
 from pathlib import Path
 import datetime
 from langchain_core.tools import tool
@@ -13,6 +14,9 @@ from langchain.tools import tool
 from pydantic import BaseModel, Field
 from core.tools.registry import register_extractor
 from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP
+from core.common.tracing import langfuse_observe
+
+logger = logging.getLogger(__name__)
 
 def should_ignore(name: str, include_hidden: bool):
     if not include_hidden and name.startswith("."):
@@ -35,6 +39,7 @@ def default_should_ignore(name: str, include_hidden: bool) -> bool:
     return name in IGNORE_DIRS
 
 @tool
+@langfuse_observe
 def scan_project(
     root: str = ".",
     include_hidden: bool = False,
@@ -49,6 +54,8 @@ def scan_project(
         include_hidden (bool): Whether to include hidden files and directories in the scan.
         max_depth (int): Maximum directory depth to scan to avoid deep recursion.
     """
+    logger.info(f"Scanning project at {root} with max_depth={max_depth}")
+    
     try:
         root_path = Path(root).resolve()
         if not root_path.is_dir():
@@ -108,7 +115,7 @@ def scan_project(
             None
         )
 
-        return ProjectSummary(
+        result = ProjectSummary(
             root=str(root_path),
             total_files=total_files,
             languages=dict(language_counter),
@@ -119,8 +126,12 @@ def scan_project(
             test_directories=sorted(list(set(test_dirs))),
             config_files=sorted(config_files),
         )
+        
+        logger.info(f"Project scan completed: {total_files} files, languages={len(language_counter)}, frameworks={len(frameworks)}")
+        return result
 
     except Exception as e:
+        logger.exception(f"Error scanning project: {str(e)}")
         raise ValueError(f"Error scanning project layout: {str(e)}")
                          
 @register_extractor("scan_project")
@@ -213,6 +224,7 @@ class GrepResult(BaseModel):
         return "".join(output)
 
 @tool
+@langfuse_observe
 def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
     """Search for a regex pattern in a file and return matching lines with line numbers.
 
@@ -223,9 +235,12 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
         file_path (str): The path to the file to search.
         max_matches (int): Maximum number of matches to return before truncation.
     """
+    logger.debug(f"Grep search: pattern={pattern}, file={file_path}, max_matches={max_matches}")
+    
     try:
         path = Path(file_path)
         if not path.is_file():
+            logger.warning(f"File not found: {file_path}")
             return GrepResult(pattern=pattern, file_path=file_path, error=f"Error: file not found: '{file_path}'")
 
         matches = []
@@ -240,6 +255,8 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
                     if len(matches) < max_matches:
                         matches.append(MatchLine(line_number=idx, content=line))
 
+        logger.info(f"Grep completed: found {total_found} matches in {file_path} (showing {len(matches)})")
+        
         return GrepResult(
             pattern=pattern,
             file_path=file_path,
@@ -248,8 +265,10 @@ def grep(pattern: str, file_path: str, max_matches: int = 250) -> GrepResult:
         )
 
     except re.error as e:
+        logger.error(f"Invalid regex pattern: {pattern}")
         return GrepResult(pattern=pattern, file_path=file_path, error=f"Error: invalid regex pattern '{pattern}': {e}")
     except Exception as e:
+        logger.exception(f"Error reading file {file_path}")
         return GrepResult(pattern=pattern, file_path=file_path, error=f"Error reading file: {str(e)}")
 
 @register_extractor("grep")

@@ -1,7 +1,10 @@
 from enum import Enum
 from typing import List
+import logging
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class Complexity(str, Enum):
@@ -90,3 +93,7 @@ class ImplementationPlan(BaseModel):
     estimated_complexity: Complexity = Complexity.MEDIUM
 
     estimated_risk: RiskLevel = RiskLevel.LOW
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        logger.info(f"ImplementationPlan created with {len(self.tasks)} tasks, complexity={self.estimated_complexity}, risk={self.estimated_risk}")

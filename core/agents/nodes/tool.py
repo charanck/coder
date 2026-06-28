@@ -1,12 +1,19 @@
 import time
 from datetime import datetime
 from typing import Any
+import logging
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 
 from core.agents.nodes.util import tools_from_runnable_config
 from core.model.state import CodingAgentState
 from core.tools.registry import TOOL_EXTRACTOR_REGISTRY
+from core.common.tracing import langfuse_observe
+
+logger = logging.getLogger(__name__)
+
+# Maximum length for tool output content before truncation
+MAX_TOOL_OUTPUT_LENGTH = 10000
 
 
 def tools_to_run_from_history(state: CodingAgentState) -> list[ToolCall]:
@@ -14,8 +21,12 @@ def tools_to_run_from_history(state: CodingAgentState) -> list[ToolCall]:
     messages = state.get("messages", [])
     latest_ai_message = next((msg for msg in reversed(messages) if isinstance(msg, AIMessage)), None)
     if not latest_ai_message:
+        logger.debug("No AI message found in history, no tools to run")
         return []
-    return latest_ai_message.tool_calls 
+    
+    tool_calls = latest_ai_message.tool_calls
+    logger.debug(f"Found {len(tool_calls)} tool calls in latest AI message")
+    return tool_calls
 
 def save_tool_cache(state: CodingAgentState, tool_name: str, tool_args: dict[str, Any], result: Any) -> None:
     """Save the result of a tool call to the tool cache in the agent's state."""
@@ -26,10 +37,26 @@ def save_tool_cache(state: CodingAgentState, tool_name: str, tool_args: dict[str
         "result": result,
         "timestamp": datetime.now().isoformat()
     }
+    logger.debug(f"Cached tool result for {tool_name}")
 
+def _truncate_content(content: str, max_length: int = MAX_TOOL_OUTPUT_LENGTH) -> str:
+    """
+    Truncate content to max_length and add ellipsis if truncated.
+    This helps reduce context window usage while preserving information.
+    """
+    if len(content) <= max_length:
+        return content
+    
+    truncated = content[:max_length]
+    logger.warning(f"Tool output truncated from {len(content)} to {max_length} chars")
+    return f"{truncated}\n... [output truncated, total length: {len(content)} chars]"
+
+@langfuse_observe
 def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]:
     available_tools = tools_from_runnable_config(config)
     tools_to_run = tools_to_run_from_history(state)
+    
+    logger.info(f"Tool node executing {len(tools_to_run)} tools")
     
     # Map tool names to their execution functions/objects
     tool_map = {tool.name: tool for tool in available_tools}
@@ -52,6 +79,8 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
         tool_args = tool_call["args"]
         tool_id = tool_call["id"]
         
+        logger.debug(f"Executing tool: {tool_name} with args: {list(tool_args.keys())}")
+        
         tool = tool_map.get(tool_name)
         start_time = time.perf_counter()
         tool_calls_count += 1
@@ -59,6 +88,7 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
         if not tool:
             # Handle cases where the LLM hallucinations a non-existent tool
             error_msg = f"Error: Tool '{tool_name}' not found or is unavailable."
+            logger.error(f"Tool '{tool_name}' not found")
             new_messages.append(ToolMessage(content=error_msg, tool_call_id=tool_id, name=tool_name))
             new_tool_history.append({
                 "tool": tool_name,
@@ -80,6 +110,11 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
             if not content or not content.strip():
                 content = f"Tool '{tool_name}' executed successfully with no output."
             
+            # Truncate content to reduce context window usage
+            content = _truncate_content(content)
+            
+            logger.debug(f"Tool '{tool_name}' executed successfully, output length: {len(content)}")
+            
             extractor = TOOL_EXTRACTOR_REGISTRY.get(tool_name)
             if extractor:
                 try:
@@ -93,16 +128,19 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
                         searches.update(updates["searches_update"])
                     if "known_facts_update" in updates:
                         known_facts.extend(updates["known_facts_update"])
+                    logger.debug(f"Extracted metadata from tool '{tool_name}' output")
                         
                 except Exception as e:
-                    print(f"Metadata extraction failed for tool '{tool_name}': {e}")
+                    logger.exception(f"Metadata extraction failed for tool '{tool_name}'")
             save_tool_cache(state, tool_name, tool_args, result)
             successful = True
         except Exception as e:
             content = f"Error executing tool '{tool_name}': {str(e)}"
+            logger.exception(f"Tool execution failed for '{tool_name}'")
             successful = False
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.info(f"Tool '{tool_name}' completed in {duration_ms}ms, successful={successful}")
         
         # Ensure content is always a valid non-empty string for Jinja template rendering
         if not isinstance(content, str) or not content.strip():
@@ -121,6 +159,7 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
         })
 
     runtime_stats["tool_calls"] = tool_calls_count
+    logger.info(f"Tool node completed with {len(new_messages)} messages, total tool calls: {tool_calls_count}")
 
     return {
         "messages": new_messages,

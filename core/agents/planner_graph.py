@@ -24,6 +24,9 @@ from core.agents.nodes.prepare_planner_context import prepare_planner_context_no
 from core.agents.nodes.llm_call import llm_call_node
 from core.agents.nodes.tool import tool_node
 from core.agents.nodes.util import tools_from_runnable_config
+from core.common.tracing import langfuse_observe
+
+logger = logging.getLogger(__name__)
 
 
 PLANNER_SYSTEM_PROMPT = """
@@ -123,16 +126,20 @@ def should_continue(state: CodingAgentState) -> Literal["tools", "end"]:
     """
     messages = state.get("messages", [])
     if not messages:
+        logger.debug("No messages in state, routing to end")
         return "end"
     
     last_message = messages[-1]
     
     # Check if the last message has tool calls
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.debug(f"Last message has {len(last_message.tool_calls)} tool calls, routing to tools")
         return "tools"
     
+    logger.debug("Last message has no tool calls, routing to end")
     return "end"
 
+@langfuse_observe
 def create_planner_graph(
     checkpointer: Any | None = None,
     auto_install_lsp: bool = True
@@ -147,6 +154,8 @@ def create_planner_graph(
     Returns:
         Compiled StateGraph ready for invocation
     """
+    logger.info(f"Creating planner graph with auto_install_lsp={auto_install_lsp}")
+    
     # Auto-install LSP servers if enabled
     if auto_install_lsp:
         _auto_install_lsp_servers()
@@ -175,6 +184,7 @@ def create_planner_graph(
     if checkpointer is None:
         checkpointer = MemorySaver()
     
+    logger.debug("Planner graph compiled successfully")
     return graph.compile(checkpointer=checkpointer)
 
 def _auto_install_lsp_servers() -> None:
@@ -215,6 +225,7 @@ def _auto_install_lsp_servers() -> None:
             "Unexpected error during LSP auto-install step"
         )
 
+@langfuse_observe
 def invoke_planner(
     state: CodingAgentState,
     config: RunnableConfig | None = None,
@@ -235,6 +246,8 @@ def invoke_planner(
     Returns:
         Updated state after graph execution
     """
+    logger.info(f"Invoking planner with {len(tools) if tools else 0} tools")
+    
     graph = create_planner_graph(checkpointer=checkpointer)
     
     # Build mutable config dict
@@ -245,19 +258,26 @@ def invoke_planner(
     if "configurable" not in mutable_config:
         mutable_config["configurable"] = {}
     if "thread_id" not in mutable_config["configurable"]:
-        mutable_config["configurable"]["thread_id"] = uuid.uuid4().hex
+        thread_id = uuid.uuid4().hex
+        mutable_config["configurable"]["thread_id"] = thread_id
+        logger.debug(f"Created new thread_id: {thread_id}")
     
     # Add tools to config if provided
     if tools:
         mutable_config["configurable"]["tools"] = tools
+        logger.debug(f"Added {len(tools)} tools to config")
     
     if langfuse_handler is not None:
         mutable_config["callbacks"] = [langfuse_handler]
+        logger.debug("Added Langfuse callback handler to config")
     
+    logger.debug("Invoking planner graph")
     result = graph.invoke(state, config=cast(RunnableConfig, mutable_config))
+    logger.info("Planner graph invocation completed")
     
     return result
 
+@langfuse_observe
 async def ainvoke_planner(
     state: CodingAgentState,
     config: RunnableConfig | None = None,
@@ -278,6 +298,8 @@ async def ainvoke_planner(
     Returns:
         Updated state after graph execution
     """
+    logger.info(f"Async invoking planner with {len(tools) if tools else 0} tools")
+    
     graph = create_planner_graph(checkpointer=checkpointer)
     
     # Build mutable config dict
@@ -288,15 +310,21 @@ async def ainvoke_planner(
     if "configurable" not in mutable_config:
         mutable_config["configurable"] = {}
     if "thread_id" not in mutable_config["configurable"]:
-        mutable_config["configurable"]["thread_id"] = uuid.uuid4().hex
+        thread_id = uuid.uuid4().hex
+        mutable_config["configurable"]["thread_id"] = thread_id
+        logger.debug(f"Created new thread_id: {thread_id}")
     
     # Add tools to config if provided
     if tools:
         mutable_config["configurable"]["tools"] = tools
+        logger.debug(f"Added {len(tools)} tools to config")
     
     if langfuse_handler is not None:
         mutable_config["callbacks"] = [langfuse_handler]
+        logger.debug("Added Langfuse callback handler to config")
     
+    logger.debug("Async invoking planner graph")
     result = await graph.ainvoke(state, config=cast(RunnableConfig, mutable_config))
+    logger.info("Async planner graph invocation completed")
     
     return result
