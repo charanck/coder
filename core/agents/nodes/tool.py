@@ -125,5 +125,9 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
     return {
         "messages": new_messages,
         "tool_history": new_tool_history,
-        "runtime": runtime_stats
+        "runtime": runtime_stats,
+        "workspace": workspace,
+        "artifacts": artifacts,
+        "searches": searches,
+        "known_facts": known_facts
     }

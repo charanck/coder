@@ -64,27 +64,6 @@ DEFAULT_IGNORE_PATTERNS = {
     "htmlcov",
 }
 
-
-def _build_ignore_patterns(
-    ignore_patterns: list[str] | None,
-) -> set[str]:
-    """
-    None -> use defaults
-
-    [] -> disable defaults
-
-    ["*.log"] -> defaults + *.log
-    """
-
-    if ignore_patterns is None:
-        return DEFAULT_IGNORE_PATTERNS
-
-    if len(ignore_patterns) == 0:
-        return set()
-
-    return DEFAULT_IGNORE_PATTERNS | set(ignore_patterns)
-
-
 def _should_ignore(
     name: str,
     include_hidden: bool,
