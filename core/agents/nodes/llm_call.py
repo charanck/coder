@@ -29,6 +29,7 @@ def llm_call_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, 
     messages: list[BaseMessage] = state.get("messages") or []
     system_prompt = state.get("system_prompt") or ""
     state_context = state.get("state_context") or ""
+    summary = state.get("summary") or ""
     
     logger.debug(f"Building message history with {len(messages)} messages")
     
@@ -36,7 +37,8 @@ def llm_call_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, 
     enhanced_messages = MessageHistoryManager.build(
         messages,
         system_prompt,
-        state_context
+        state_context,
+        summary,
     )
 
     

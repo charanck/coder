@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import cast
 from pathlib import Path
 from config import load_config
@@ -12,6 +13,13 @@ from core.model.state import CodingAgentState
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+def _safe_print(value: object) -> None:
+    text = str(value)
+    encoding = sys.stdout.encoding or "utf-8"
+    safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    print(safe_text)
 
 
 def main():
@@ -44,7 +52,7 @@ def main():
         flush_langfuse_traces()
 
     logger.info("Main execution completed")
-    print(result)
+    _safe_print(result)
 
 def example_basic_usage():
     logger.info("Starting example_basic_usage")
@@ -54,7 +62,7 @@ def example_basic_usage():
     state: CodingAgentState = {
         "project_root": str(Path.cwd()),
         "messages": [
-            HumanMessage(content="need to add tool output truncation to reduce context window usage in tool node")
+            HumanMessage(content="need to implement an executor agent that can run tasks in parallel and handle dependencies")
         ],
         "summary": "",
         "goal": "",
@@ -87,7 +95,7 @@ def example_basic_usage():
     # Access the plan from the final AI message
     final_message = result["messages"][-1]
     logger.info(f"Plan generated with {len(result['messages'])} messages")
-    print(f"Plan generated: {final_message.content}")
+    _safe_print(f"Plan generated: {final_message.content}")
     
     return result
 

@@ -14,6 +14,7 @@ from core.client.lsp.manager import lsp_manager
 from core.common.tracing import langfuse_observe
 from pydantic import BaseModel, Field
 
+from config import DEFAULT_IGNORE_PATTERNS
 from core.tools.search import should_ignore
 
 logger = logging.getLogger(__name__)
@@ -27,70 +28,6 @@ LSP_SYMBOL_KIND_MAP = {
     15: "String", 16: "Number", 17: "Boolean", 18: "Array", 19: "Object",
     20: "Key", 21: "Null", 22: "EnumMember", 23: "Struct", 24: "Event",
     25: "Operator", 26: "TypeParameter"
-}
-
-DEFAULT_IGNORE_PATTERNS = {
-    # Python
-    "__pycache__",
-    "*.pyc",
-    "*.pyo",
-    "*.pyd",
-    "*.egg-info",
-    "*.dist-info",
-    ".eggs",
-    "build",
-    "dist",
-
-    # Virtual environments
-    ".venv",
-    "venv",
-    "env",
-
-    # Git
-    ".git",
-    ".hg",
-    ".svn",
-
-    # Node
-    "node_modules",
-    ".npm",
-
-    # Go
-    "vendor",
-
-    # Rust
-    "target",
-
-    # Java 
-    "*.class",
-    "*.jar",
-    "*.war",
-
-    # C#
-    "bin",
-    "obj",
-    "*.dll",
-
-    # C/C++
-    "*.o",
-    "*.obj",
-    "*.exe",
-    "*.lib",
-
-    # IDE
-    ".idea",
-    ".vscode",
-
-    # OS
-    ".DS_Store",
-    "Thumbs.db",
-
-    # Caches
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    ".coverage",
-    "htmlcov",
 }
 
 def _format_lines(
@@ -117,22 +54,27 @@ def read_file(
     Supports partial reads and returns numbered lines.
 
     Args:
-        file_path (str): The path to the file to read.
-        start_line (int | None): The starting line number (1-based). If None, starts from the beginning.
-        end_line (int | None): The ending line number (1-based). If None, reads to the end of the file.
+        file_path: Path to the file.
+        start_line: 1-based starting line.
+        end_line: 1-based ending line.
     """
-    logger.debug(f"Reading file: {file_path}, lines {start_line}-{end_line}")
+    logger.debug(
+        "Reading file: %s (lines %s-%s)",
+        file_path,
+        start_line,
+        end_line,
+    )
 
     try:
-        path = Path(file_path)
+        path = Path(file_path).expanduser().resolve()
 
         if not path.exists():
-            logger.warning(f"File not found: {file_path}")
-            return f"Error: File '{file_path}' does not exist."
+            logger.warning("File not found: %s", path)
+            return f"Error: File '{path}' does not exist."
 
         if not path.is_file():
-            logger.warning(f"Path is not a file: {file_path}")
-            return f"Error: '{file_path}' is not a file."
+            logger.warning("Path is not a file: %s", path)
+            return f"Error: '{path}' is not a file."
 
         with path.open(
             "r",
@@ -143,26 +85,57 @@ def read_file(
 
         total = len(lines)
 
+        if total == 0:
+            logger.info("Read empty file: %s", path)
+            return (
+                f"File: {path}\n"
+                "Lines: 0 of 0\n"
+                f"{'-' * 60}\n"
+                "[Empty file]"
+            )
+
         start = 1 if start_line is None else max(1, start_line)
         end = total if end_line is None else min(total, end_line)
 
-        if start > end:
-            logger.error(f"Invalid line range: {start}-{end}")
-            return "Error: Invalid line range."
+        if start > total:
+            return (
+                f"Error: Start line ({start}) exceeds file length ({total} lines)."
+            )
+
+        if end < start:
+            return (
+                f"Error: Invalid line range ({start}-{end})."
+            )
 
         selected = lines[start - 1 : end]
-        logger.info(f"Read file {file_path}: lines {start}-{end} of {total}")
+
+        logger.info(
+            "Read file %s: lines %d-%d of %d",
+            path,
+            start,
+            end,
+            total,
+        )
 
         return (
             f"File: {path}\n"
             f"Lines: {start}-{end} of {total}\n"
-            f"{'-'*60}\n"
+            f"{'-' * 60}\n"
             f"{_format_lines(selected, start)}"
         )
 
+    except UnicodeDecodeError:
+        logger.exception("Unable to decode file: %s", file_path)
+        return "Error: File is not valid UTF-8 text."
+
+    except PermissionError:
+        logger.exception("Permission denied: %s", file_path)
+        return f"Error: Permission denied reading '{file_path}'."
+
     except Exception as e:
-        logger.exception(f"Error reading file: {file_path}")
+        logger.exception("Error reading file: %s", file_path)
         return f"Error reading file: {e}"
+    
 
 @register_extractor("read_file")
 @langfuse_observe

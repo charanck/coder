@@ -1,6 +1,7 @@
 from typing import TypedDict, Annotated, Any, Literal
 from operator import add
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 class CodingAgentState(TypedDict):
     # ==========================================
@@ -11,7 +12,7 @@ class CodingAgentState(TypedDict):
     # ==========================================
     # CONVERSATION STATE
     # ==========================================
-    messages: Annotated[list[BaseMessage], add]
+    messages: Annotated[list[BaseMessage], add_messages]
     summary: str  # Rolling summary of past chat messages to save context windows
 
     # ==========================================

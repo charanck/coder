@@ -10,11 +10,10 @@ import fnmatch
 from typing import Any, Dict, List
 from core.model.search import ProjectSummary
 from core.model.state import CodingAgentState
-from core.tools.files import DEFAULT_IGNORE_PATTERNS
 from langchain.tools import tool
 from pydantic import BaseModel, Field
 from core.tools.registry import register_extractor
-from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP
+from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP, DEFAULT_IGNORE_PATTERNS
 from core.common.tracing import langfuse_observe
 
 logger = logging.getLogger(__name__)

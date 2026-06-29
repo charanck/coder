@@ -8,7 +8,10 @@ and properly integrates with LangChain's message history.
 
 from __future__ import annotations
 from typing import Any
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+
+
+SUMMARY_ANCHOR_PREFIX = "[PLANNER SESSION SUMMARY]"
 
 
 class ContextFormatter:
@@ -152,6 +155,8 @@ class MessageHistoryManager:
                     tool_call_id=msg.tool_call_id,
                     name=msg.name
                 ))
+            elif isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                sanitized.append(msg)
             elif msg.content is None or (isinstance(msg.content, str) and not msg.content.strip()):
                 # Skip messages with None or empty content
                 continue
@@ -164,6 +169,7 @@ class MessageHistoryManager:
         messages: list[BaseMessage],
         system_prompt: str,
         state_context: str | None = None,
+        summary: str | None = None,
     ) -> list[BaseMessage]:
         history = [
             msg
@@ -177,6 +183,17 @@ class MessageHistoryManager:
 
         if state_context:
             result.append(SystemMessage(content=state_context))
+
+        # Gemini function-calling requires an assistant tool-call turn to follow
+        # a user or tool-response turn. After summarization, retained history may
+        # begin with an assistant tool-call, so anchor it with the session summary.
+        if (
+            summary
+            and history
+            and isinstance(history[0], AIMessage)
+            and bool(history[0].tool_calls)
+        ):
+            result.append(HumanMessage(content=f"{SUMMARY_ANCHOR_PREFIX}\n{summary.strip()}"))
 
         result.extend(history)
 

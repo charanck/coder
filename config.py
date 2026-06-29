@@ -101,6 +101,70 @@ PROJECT_FRAMEWORK_FILES = {
     "composer.json": "PHP",
 }
 
+DEFAULT_IGNORE_PATTERNS = {
+    # Python
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    "*.egg-info",
+    "*.dist-info",
+    ".eggs",
+    "build",
+    "dist",
+
+    # Virtual environments
+    ".venv",
+    "venv",
+    "env",
+
+    # Git
+    ".git",
+    ".hg",
+    ".svn",
+
+    # Node
+    "node_modules",
+    ".npm",
+
+    # Go
+    "vendor",
+
+    # Rust
+    "target",
+
+    # Java 
+    "*.class",
+    "*.jar",
+    "*.war",
+
+    # C#
+    "bin",
+    "obj",
+    "*.dll",
+
+    # C/C++
+    "*.o",
+    "*.obj",
+    "*.exe",
+    "*.lib",
+
+    # IDE
+    ".idea",
+    ".vscode",
+
+    # OS
+    ".DS_Store",
+    "Thumbs.db",
+
+    # Caches
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".coverage",
+    "htmlcov",
+}
+
 
 def get_supported_lsp_language_cases() -> tuple[SupportedLanguageCase, ...]:
     return SUPPORTED_LSP_LANGUAGE_CASES

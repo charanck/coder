@@ -18,6 +18,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
+from core.agents.nodes.summarizer import summarizer_node
 from core.model.state import CodingAgentState
 from core.model.planner import ImplementationPlan
 from core.agents.nodes.prepare_planner_context import prepare_planner_context_node
@@ -160,6 +161,7 @@ def create_planner_graph(
     graph.add_node("prepare_planner_context", prepare_planner_context_node)
     graph.add_node("llm", llm_call_node)
     graph.add_node("tools", tool_node)
+    graph.add_node("summarizer", summarizer_node)
     
     # Add edges
     graph.add_edge(START, "prepare_planner_context")
@@ -172,7 +174,8 @@ def create_planner_graph(
             "end": END
         }
     )
-    graph.add_edge("tools", "prepare_planner_context")
+    graph.add_edge("tools", "summarizer")
+    graph.add_edge("summarizer", "prepare_planner_context")
     
     # Compile with checkpointer
     if checkpointer is None:
