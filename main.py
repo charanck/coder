@@ -1,17 +1,13 @@
-import asyncio
 import logging
 from typing import cast
 from pathlib import Path
-
 from config import load_config
-from core.agents.planner import get_planner_agent
 from core.agents.planner_graph import invoke_planner
 from core.common.tracing import flush_langfuse_traces, get_langfuse_callback_handler
-from core.tools.tools import ALL_TOOLS, READ_ONLY_TOOLS
+from core.tools.tools import READ_ONLY_TOOLS
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langchain.messages import HumanMessage
-
 from core.model.state import CodingAgentState
 
 logger = logging.getLogger(__name__)
@@ -58,7 +54,7 @@ def example_basic_usage():
     state: CodingAgentState = {
         "project_root": str(Path.cwd()),
         "messages": [
-            HumanMessage(content="need to add tool output truncation to reduce context window usage")
+            HumanMessage(content="need to add tool output truncation to reduce context window usage in tool node")
         ],
         "summary": "",
         "goal": "",

@@ -19,25 +19,18 @@ from core.common.tracing import langfuse_observe
 
 logger = logging.getLogger(__name__)
 
-def should_ignore(name: str, include_hidden: bool):
+def should_ignore(name: str, include_hidden: bool, custom_ignores: List[str] | None = None) -> bool:
     if not include_hidden and name.startswith("."):
         return True
+
+    patterns = DEFAULT_IGNORE_PATTERNS.copy()
+    if custom_ignores:
+        patterns.update(custom_ignores)
 
     return any(
         fnmatch.fnmatch(name, pattern)
         for pattern in DEFAULT_IGNORE_PATTERNS
     )
-
-
-IGNORE_DIRS = {
-    "node_modules", ".git", ".venv", "venv", "env", "__pycache__",
-    ".pytest_cache", ".mypy_cache", "dist", "build", "target"
-}
-
-def default_should_ignore(name: str, include_hidden: bool) -> bool:
-    if not include_hidden and name.startswith("."):
-        return name not in (".github", ".vscode") 
-    return name in IGNORE_DIRS
 
 @tool
 @langfuse_observe
@@ -82,7 +75,7 @@ def scan_project(
 
             dirs[:] = sorted([
                 d for d in dirs 
-                if not default_should_ignore(d, include_hidden)
+                if not should_ignore(d, include_hidden)
             ])
 
             rel_root = current_path.relative_to(root_path)
@@ -98,7 +91,7 @@ def scan_project(
                 source_dirs.add(str(rel_root))
 
             for file in files:
-                if default_should_ignore(file, include_hidden):
+                if should_ignore(file, include_hidden):
                     continue
 
                 total_files += 1

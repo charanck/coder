@@ -14,6 +14,8 @@ from core.client.lsp.manager import lsp_manager
 from core.common.tracing import langfuse_observe
 from pydantic import BaseModel, Field
 
+from core.tools.search import should_ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,28 @@ DEFAULT_IGNORE_PATTERNS = {
     "node_modules",
     ".npm",
 
+    # Go
+    "vendor",
+
+    # Rust
+    "target",
+
+    # Java 
+    "*.class",
+    "*.jar",
+    "*.war",
+
+    # C#
+    "bin",
+    "obj",
+    "*.dll",
+
+    # C/C++
+    "*.o",
+    "*.obj",
+    "*.exe",
+    "*.lib",
+
     # IDE
     ".idea",
     ".vscode",
@@ -68,17 +92,6 @@ DEFAULT_IGNORE_PATTERNS = {
     ".coverage",
     "htmlcov",
 }
-
-def _should_ignore(
-    name: str,
-    include_hidden: bool,
-    patterns: set[str],
-) -> bool:
-    if not include_hidden and name.startswith("."):
-        return True
-
-    return any(fnmatch.fnmatch(name, p) for p in patterns)
-
 
 def _format_lines(
     lines: list[str],
@@ -421,10 +434,10 @@ def list_files(
             logger.warning(f"Not a directory: {directory_path}")
             return FileListResult(directory_path=directory_path, error=f"'{directory_path}' is not a directory.")
 
-        patterns = set(ignore_patterns or [])
+        patterns = ignore_patterns or []
         # Fallback defaults for global asset safety layers
         if not include_hidden:
-            patterns.update([".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build"])
+            patterns.extend([".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build"])
 
         results: List[FileEntry] = []
         total_count = 0
@@ -432,8 +445,8 @@ def list_files(
         if recursive:
             for current_root, dirs, files in os.walk(root):
                 # Apply in-place filtering rules for safety controls
-                dirs[:] = sorted([d for d in dirs if not _should_ignore(d, include_hidden, patterns)])
-                files = sorted([f for f in files if not _should_ignore(f, include_hidden, patterns)])
+                dirs[:] = sorted([d for d in dirs if not should_ignore(d, include_hidden, patterns)])
+                files = sorted([f for f in files if not should_ignore(f, include_hidden, patterns)])
 
                 rel_root = Path(os.path.relpath(current_root, root))
 
@@ -453,7 +466,7 @@ def list_files(
         else:
             try:
                 for child in sorted(root.iterdir()):
-                    if _should_ignore(child.name, include_hidden, patterns):
+                    if should_ignore(child.name, include_hidden, patterns):
                         continue
                     
                     total_count += 1
@@ -577,7 +590,7 @@ def find_files(
             logger.warning(f"Invalid directory: {root}")
             return FindFilesResult(pattern=pattern, root_path=root, error=f"'{root}' is not a valid directory.")
 
-        custom_ignores = set(ignore_patterns or [])
+        custom_ignores = ignore_patterns or []
         matches = []
         total_found = 0
 
@@ -585,13 +598,13 @@ def find_files(
             # In-place directory pruning to avoid scanning ignored paths entirely
             dirs[:] = sorted([
                 d for d in dirs 
-                if not _should_ignore(d, include_hidden, custom_ignores)
+                if not should_ignore(d, include_hidden, custom_ignores)
             ])
-
+    
             rel_root = Path(current_root).relative_to(root_path)
 
             for file in sorted(files):
-                if _should_ignore(file, include_hidden, custom_ignores):
+                if should_ignore(file, include_hidden, custom_ignores):
                     continue
 
                 # Smart evaluation: match against just the filename OR the relative path layout
