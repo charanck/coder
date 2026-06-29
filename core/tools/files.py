@@ -203,7 +203,7 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
         logger.info(f"[extract_read_file] LSP client created: {lsp_client is not None}")
 
         if lsp_client is None:
-            # TODO: as fallback we should extract symbols using regex or a simple parser for known languages or use llm to extract symbols if lsp is not available
+            # TODO: as fallback we should extract symbols using treesitter
             raise RuntimeError(f"No LSP client available for the file extension of '{file_path}'")
 
         file_uri = str(Path(file_path).resolve().as_uri())
@@ -286,36 +286,23 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
                                 (
                                     "system",
                                     """
-                        You are an expert software architect.
+                                    You are analyzing a source file.
 
-                        You are given:
+                                    Use BOTH the detected symbols and the code.
 
-                        - the programming language
-                        - the file path
-                        - symbols extracted from the language server
-                        - structural facts extracted from the language server
-                        - part of the source code
+                                    Detected symbols are authoritative.
 
-                        The symbols and structural facts are authoritative.
+                                    Write:
 
-                        Write a concise 2-3 sentence summary describing:
+                                    - one sentence describing the purpose
+                                    - one sentence describing the main responsibilities
 
-                        1. The architectural purpose of the file.
-                        2. Its primary responsibilities.
-                        3. How it interacts with the rest of the system (if apparent).
+                                    Do not describe syntax.
 
-                        Focus on intent and behavior.
+                                    Do not list methods.
 
-                        Do NOT:
-
-                        - explain syntax
-                        - list every function
-                        - mention line numbers
-                        - repeat the symbol list
-                        - use markdown
-
-                        Return only the summary as plain text.
-                        """,
+                                    Focus on architectural intent.
+                                    """,
                                 ),
                                 (
                                     "human",
