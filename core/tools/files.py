@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from core.model.state import CodingAgentState
 from core.tools.registry import register_extractor
 from core.client.lsp.manager import lsp_manager
+from core.service.tree_sitter import TreeSitterService
 from core.common.tracing import langfuse_observe
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,138 @@ LSP_SYMBOL_KIND_MAP = {
     20: "Key", 21: "Null", 22: "EnumMember", 23: "Struct", 24: "Event",
     25: "Operator", 26: "TypeParameter"
 }
+
+
+def _get_symbol_extractor(file_path: str, workspace_dir: str):
+    """Get the appropriate symbol extractor (LSP client or TreeSitter service).
+    
+    Args:
+        file_path: Path to the file
+        workspace_dir: Project root directory
+        
+    Returns:
+        Tuple of (extractor, is_lsp) where is_lsp indicates if it's LSP (True) or TreeSitter (False)
+    """
+    # Try LSP first
+    lsp_client = lsp_manager.get_by_extension(file_path, workspace=workspace_dir)
+    if lsp_client is not None:
+        logger.debug(f"[_get_symbol_extractor] Using LSP for {file_path}")
+        return lsp_client, True
+    
+    # Fall back to TreeSitter
+    extension = Path(file_path).suffix.lstrip(".")
+    if extension:
+        logger.debug(f"[_get_symbol_extractor] LSP unavailable, falling back to TreeSitter for {extension}")
+        try:
+            ts_service = TreeSitterService(extension)
+            if ts_service.parser is not None:
+                logger.debug(f"[_get_symbol_extractor] TreeSitter service initialized for {extension}")
+                return ts_service, False
+        except Exception as e:
+            logger.warning(f"[_get_symbol_extractor] Failed to initialize TreeSitter: {e}")
+    
+    logger.warning(f"[_get_symbol_extractor] No symbol extractor available for {file_path}")
+    return None, None
+
+
+def _normalize_symbols_format(raw_symbols: list[dict], is_lsp: bool) -> list[dict]:
+    """Normalize symbols to a common format regardless of source (LSP or TreeSitter).
+    
+    LSP symbols have:
+        - kind (integer ID)
+        - range with start/end having line/character
+        
+    TreeSitter symbols have:
+        - kind (string name)
+        - range with start/end having line/character
+    
+    Returns normalized format with kind as string name.
+    """
+    normalized = []
+    
+    for sym in raw_symbols:
+        kind = sym.get("kind")
+        
+        # Convert LSP kind ID to string if necessary
+        if is_lsp and isinstance(kind, int):
+            kind_name = LSP_SYMBOL_KIND_MAP.get(kind, f"Unknown({kind})")
+        else:
+            kind_name = str(kind) if kind else "Unknown"
+        
+        normalized.append({
+            "name": sym.get("name", "unknown"),
+            "kind": kind_name,
+            "range": sym.get("range", {}),
+            "children": sym.get("children", []),
+        })
+    
+    return normalized
+
+
+def _extract_and_parse_symbols(raw_symbols: list[dict], is_lsp: bool) -> tuple[list[dict], list[str]]:
+    """Extract and parse symbols into structured format and facts.
+    
+    Args:
+        raw_symbols: Raw symbols from extractor
+        is_lsp: Whether symbols come from LSP (True) or TreeSitter (False)
+        
+    Returns:
+        Tuple of (parsed_symbols, facts) where:
+        - parsed_symbols: list of dicts with name, kind, start_line, end_line, identity
+        - facts: list of structural facts extracted from symbols
+    """
+    parsed_symbols = []
+    facts = []
+    
+    # Normalize symbols format first
+    normalized = _normalize_symbols_format(raw_symbols, is_lsp)
+    
+    def get_symbol_range(sym: dict) -> dict:
+        """Extract range information from symbol, handling variations in format."""
+        if "range" in sym:
+            return sym["range"]
+        if "location" in sym:
+            return sym["location"].get("range", {})
+        if "selectionRange" in sym:
+            return sym["selectionRange"]
+        return {}
+    
+    def parse_symbols_recursive(symbols: list[dict], parent_name: str = ""):
+        """Recursively parse symbols and generate facts."""
+        for sym in symbols:
+            name = sym.get("name", "unknown")
+            kind_name = sym.get("kind", "Unknown")
+            
+            sym_range = get_symbol_range(sym)
+            start_line = sym_range.get("start", {}).get("line", 0) + 1
+            end_line = sym_range.get("end", {}).get("line", 0) + 1
+            
+            full_identity = f"{parent_name}.{name}" if parent_name else name
+
+            parsed_symbols.append({
+                "name": name,
+                "kind": kind_name,
+                "start_line": start_line,
+                "end_line": end_line,
+                "identity": full_identity
+            })
+            
+            # Generate structural facts
+            if kind_name in ["Class", "Interface", "Struct", "Enum"]:
+                facts.append(
+                    f"Defines core structure '{full_identity}' ({kind_name}) from lines {start_line} to {end_line}."
+                )
+            elif kind_name in ["Method", "Function"] and not parent_name:
+                facts.append(
+                    f"Exposes top-level executable capability '{full_identity}' ({kind_name}) starting at line {start_line}."
+                )
+            
+            # Process nested symbols (children)
+            if "children" in sym and sym["children"]:
+                parse_symbols_recursive(sym["children"], parent_name=full_identity)
+    
+    parse_symbols_recursive(normalized)
+    return parsed_symbols, facts
 
 def _format_lines(
     lines: list[str],
@@ -159,78 +292,37 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     file_summary = "Summary extraction unavailable."
-    lsp_facts = []
     parsed_symbols = []
+    facts = []
 
     try:
-        # Use project_root from state if available, otherwise fall back to finding it
+        # Determine workspace directory
         workspace_dir = state.get("project_root") if state else None
-        
         if not workspace_dir:
             logger.debug("[extract_read_file] project_root not in state, falling back to discovery")
-            workspace_dir = state["project_root"] if state and "project_root" in state else str(Path(file_path).resolve().parent)
+            workspace_dir = str(Path(file_path).resolve().parent)
         
         logger.info(f"[extract_read_file] Project root: {workspace_dir}")
         
-        lsp_client = lsp_manager.get_by_extension(file_path, workspace=workspace_dir)
-        logger.info(f"[extract_read_file] LSP client created: {lsp_client is not None}")
-
-        if lsp_client is None:
-            # TODO: as fallback we should extract symbols using treesitter
-            raise RuntimeError(f"No LSP client available for the file extension of '{file_path}'")
-
-        file_uri = str(Path(file_path).resolve().as_uri())
-        logger.debug(f"[extract_read_file] Requesting symbols for URI: {file_uri}")
+        # Get appropriate symbol extractor (LSP or TreeSitter)
+        extractor, is_lsp = _get_symbol_extractor(file_path, workspace_dir)
         
-        raw_symbols = lsp_client.extract_document_symbols(file_uri) or []
-        logger.info(f"[extract_read_file] Extracted {len(raw_symbols)} top-level symbols")
-        logger.debug(f"[extract_read_file] Raw symbols: {raw_symbols}")
-
-        def get_symbol_range(sym: dict) -> dict:
-            if "range" in sym:
-                return sym["range"]
-
-            if "location" in sym:
-                return sym["location"].get("range", {})
-
-            if "selectionRange" in sym:
-                return sym["selectionRange"]
-
-            return {}
-        
-        def parse_lsp_symbols(symbols: list[dict], parent_name: str = ""):
-            for sym in symbols:
-                name = sym.get("name", "unknown")
-                kind_id = sym.get("kind", 0)
-                kind_name = LSP_SYMBOL_KIND_MAP.get(kind_id, f"Unknown({kind_id})")
-                
-                sym_range = get_symbol_range(sym)
-                start_line = sym_range.get("start", {}).get("line", 0) + 1
-                end_line = sym_range.get("end", {}).get("line", 0) + 1
-                
-                full_identity = f"{parent_name}.{name}" if parent_name else name
-
-                parsed_symbols.append({
-                    "name": name,
-                    "kind": kind_name,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "identity": full_identity
-                })
-                
-                if kind_name in ["Class", "Interface", "Struct", "Enum"]:
-                    lsp_facts.append(
-                        f"Defines core structure '{full_identity}' ({kind_name}) from lines {start_line} to {end_line}."
-                    )
-                elif kind_name in ["Method", "Function"] and not parent_name:
-                    lsp_facts.append(
-                        f"Exposes top-level executable capability '{full_identity}' ({kind_name}) starting at line {start_line}."
-                    )
-                
-                if "children" in sym and sym["children"]:
-                    parse_lsp_symbols(sym["children"], parent_name=full_identity)
-
-        parse_lsp_symbols(raw_symbols)
+        if extractor is None:
+            logger.warning(f"[extract_read_file] No symbol extractor available for {file_path}")
+            file_summary = "Symbol extraction unavailable - no LSP or TreeSitter support."
+        else:
+            # Extract symbols using the available extractor
+            file_uri = str(Path(file_path).resolve().as_uri())
+            logger.debug(f"[extract_read_file] Extracting symbols from URI: {file_uri}")
+            
+            raw_symbols = extractor.extract_document_symbols(file_uri) or []
+            logger.info(f"[extract_read_file] Extracted {len(raw_symbols)} top-level symbols ({('LSP' if is_lsp else 'TreeSitter')})")
+            
+            # Parse symbols and generate facts
+            parsed_symbols, facts = _extract_and_parse_symbols(raw_symbols, bool(is_lsp))
+            # Testing treesitter
+            # parsed_symbols, facts = _extract_and_parse_symbols(raw_symbols, False)
+            logger.info(f"[extract_read_file] Parsed {len(parsed_symbols)} symbols and {len(facts)} facts")
 
         language = Path(file_path).suffix.lstrip(".") or "unknown"
 
@@ -241,7 +333,7 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
 
         facts_context = "\n".join(
             f"- {fact}"
-            for fact in lsp_facts[:MAX_FACTS_FOR_SUMMARY]
+            for fact in facts[:MAX_FACTS_FOR_SUMMARY]
         )
 
         content_for_summary = raw_content
@@ -317,7 +409,7 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
         logger.exception(f"[extract_read_file] Error during extraction: {str(e)}")
         file_summary = f"Systematic analysis completed with degradation. Error mapping structural layout: {str(e)}"
 
-    logger.info(f"[extract_read_file] Extraction complete. Symbols found: {len(parsed_symbols)}, Facts: {len(lsp_facts)}")
+    logger.info(f"[extract_read_file] Extraction complete. Symbols found: {len(parsed_symbols)}, Facts: {len(facts)}")
 
     workspace_payload = {
         "full_content": raw_content,
@@ -329,7 +421,7 @@ def extract_read_file(result: Any, args: Dict[str, Any], state: CodingAgentState
 
     known_facts_payload = [
         {"source": file_path, "fact": fact, "extracted_at": timestamp}
-        for fact in lsp_facts
+        for fact in facts
     ]
 
     return {
@@ -637,142 +729,142 @@ def extract_find_files(result: Any, args: Dict[str, Any], state: CodingAgentStat
         }
     }
 
-class NodeEntry(BaseModel):
-    relative_path: str = Field(description="The relative path from the tree generation root.")
-    name: str = Field(description="The basename of the item.")
-    type: Literal["file", "directory"] = Field(description="The cataloged entity variant classification.")
-    depth: int = Field(description="The depth level of recursion inside the repository branch.")
+# class NodeEntry(BaseModel):
+#     relative_path: str = Field(description="The relative path from the tree generation root.")
+#     name: str = Field(description="The basename of the item.")
+#     type: Literal["file", "directory"] = Field(description="The cataloged entity variant classification.")
+#     depth: int = Field(description="The depth level of recursion inside the repository branch.")
 
 
-class DirectoryTreeResult(BaseModel):
-    root_path: str = Field(description="The absolute base directory where the tree visualization originated.")
-    tree_string: str = Field(description="The generated string drawing visualization representation.")
-    nodes: List[NodeEntry] = Field(default_factory=list, description="A flat listing of every structured entity explored.")
-    total_directories: int = Field(default=0, description="Total directories traversed.")
-    total_files: int = Field(default=0, description="Total files captured.")
-    error: Optional[str] = Field(default=None, description="Error notes generated if operations fail.")
+# class DirectoryTreeResult(BaseModel):
+#     root_path: str = Field(description="The absolute base directory where the tree visualization originated.")
+#     tree_string: str = Field(description="The generated string drawing visualization representation.")
+#     nodes: List[NodeEntry] = Field(default_factory=list, description="A flat listing of every structured entity explored.")
+#     total_directories: int = Field(default=0, description="Total directories traversed.")
+#     total_files: int = Field(default=0, description="Total files captured.")
+#     error: Optional[str] = Field(default=None, description="Error notes generated if operations fail.")
 
-    def __str__(self) -> str:
-        """Outputs the classic ASCII visualization directly to the LLM console view."""
-        if self.error:
-            return f"Error mapping tree: {self.error}"
+#     def __str__(self) -> str:
+#         """Outputs the classic ASCII visualization directly to the LLM console view."""
+#         if self.error:
+#             return f"Error mapping tree: {self.error}"
         
-        metrics_header = (
-            f"Directory Structure for: {self.root_path}\n"
-            f"({self.total_directories} directories, {self.total_files} files captured)\n"
-            f"--------------------------------------------------\n"
-        )
-        return f"{metrics_header}{self.tree_string}"
+#         metrics_header = (
+#             f"Directory Structure for: {self.root_path}\n"
+#             f"({self.total_directories} directories, {self.total_files} files captured)\n"
+#             f"--------------------------------------------------\n"
+#         )
+#         return f"{metrics_header}{self.tree_string}"
 
 
-@tool
-@langfuse_observe
-def get_directory_tree(
-    root: str = ".",
-    max_depth: int = 3,
-    include_hidden: bool = False,
-    ignore_patterns: Optional[list[str]] = None,
-) -> DirectoryTreeResult:
-    """Return an ASCII visual tree layout representation of a directory structure.
+# @tool
+# @langfuse_observe
+# def get_directory_tree(
+#     root: str = ".",
+#     max_depth: int = 3,
+#     include_hidden: bool = False,
+#     ignore_patterns: Optional[list[str]] = None,
+# ) -> DirectoryTreeResult:
+#     """Return an ASCII visual tree layout representation of a directory structure.
 
-    Use this tool to evaluate unfamiliar subfolder landscapes and quickly spot project layouts.
+#     Use this tool to evaluate unfamiliar subfolder landscapes and quickly spot project layouts.
 
-    Args:
-        root (str): The root directory to start the tree visualization from. Defaults to the current directory.
-        max_depth (int): The maximum depth of recursion for the tree. Defaults to 3.
-        include_hidden (bool): Whether to include hidden files and directories in the tree. Defaults to False.
-        ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the tree generation. Defaults to None.
-    """
-    logger.debug(f"Generating directory tree: root={root}, max_depth={max_depth}")
+#     Args:
+#         root (str): The root directory to start the tree visualization from. Defaults to the current directory.
+#         max_depth (int): The maximum depth of recursion for the tree. Defaults to 3.
+#         include_hidden (bool): Whether to include hidden files and directories in the tree. Defaults to False.
+#         ignore_patterns (Optional[list[str]]): List of glob patterns to ignore during the tree generation. Defaults to None.
+#     """
+#     logger.debug(f"Generating directory tree: root={root}, max_depth={max_depth}")
     
-    try:
-        # Standard fallbacks for isolated cross-language analysis
-        TREE_DEFAULT_IGNORE = {
-            "node_modules", ".git", ".venv", "venv", "env", "__pycache__",
-            ".pytest_cache", ".mypy_cache", "dist", "build", "target"
-        }
-        root_path = Path(root).resolve()
-        if not root_path.exists():
-            logger.warning(f"Path does not exist: {root}")
-            return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' does not exist.")
-        if not root_path.is_dir():
-            logger.warning(f"Path is not a directory: {root}")
-            return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' is not a directory.")
+#     try:
+#         # Standard fallbacks for isolated cross-language analysis
+#         TREE_DEFAULT_IGNORE = {
+#             "node_modules", ".git", ".venv", "venv", "env", "__pycache__",
+#             ".pytest_cache", ".mypy_cache", "dist", "build", "target"
+#         }
+#         root_path = Path(root).resolve()
+#         if not root_path.exists():
+#             logger.warning(f"Path does not exist: {root}")
+#             return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' does not exist.")
+#         if not root_path.is_dir():
+#             logger.warning(f"Path is not a directory: {root}")
+#             return DirectoryTreeResult(root_path=root, tree_string="", error=f"'{root}' is not a directory.")
 
-        # Compute ignore policies
-        active_patterns = set(TREE_DEFAULT_IGNORE)
-        if ignore_patterns is not None:
-            if len(ignore_patterns) == 0:
-                active_patterns = set()
-            else:
-                active_patterns.update(ignore_patterns)
+#         # Compute ignore policies
+#         active_patterns = set(TREE_DEFAULT_IGNORE)
+#         if ignore_patterns is not None:
+#             if len(ignore_patterns) == 0:
+#                 active_patterns = set()
+#             else:
+#                 active_patterns.update(ignore_patterns)
 
-        def should_ignore(name: str) -> bool:
-            if not include_hidden and name.startswith(".") and name not in (".github", ".vscode"):
-                return True
-            return any(fnmatch.fnmatch(name, p) for p in active_patterns)
+#         def should_ignore(name: str) -> bool:
+#             if not include_hidden and name.startswith(".") and name not in (".github", ".vscode"):
+#                 return True
+#             return any(fnmatch.fnmatch(name, p) for p in active_patterns)
 
-        lines = [root_path.name + "/"]
-        nodes_list: List[NodeEntry] = []
-        metrics = {"dirs": 0, "files": 0}
+#         lines = [root_path.name + "/"]
+#         nodes_list: List[NodeEntry] = []
+#         metrics = {"dirs": 0, "files": 0}
 
-        def walk(path: Path, prefix: str, depth: int):
-            if depth > max_depth:
-                return
+#         def walk(path: Path, prefix: str, depth: int):
+#             if depth > max_depth:
+#                 return
 
-            try:
-                # Group folders together on top, then sort alphabetically for deterministic tracing
-                children = sorted(
-                    path.iterdir(),
-                    key=lambda p: (not p.is_dir(), p.name.lower()),
-                )
-            except PermissionError:
-                lines.append(prefix + "└── [Permission Denied]")
-                return
+#             try:
+#                 # Group folders together on top, then sort alphabetically for deterministic tracing
+#                 children = sorted(
+#                     path.iterdir(),
+#                     key=lambda p: (not p.is_dir(), p.name.lower()),
+#                 )
+#             except PermissionError:
+#                 lines.append(prefix + "└── [Permission Denied]")
+#                 return
 
-            filtered_children = [c for c in children if not should_ignore(c.name)]
-            total_children = len(filtered_children)
+#             filtered_children = [c for c in children if not should_ignore(c.name)]
+#             total_children = len(filtered_children)
 
-            for index, child in enumerate(filtered_children):
-                is_last = (index == total_children - 1)
-                connector = "└── " if is_last else "├── "
+#             for index, child in enumerate(filtered_children):
+#                 is_last = (index == total_children - 1)
+#                 connector = "└── " if is_last else "├── "
                 
-                # Append string line visualization formatting parameters
-                name_suffix = "/" if child.is_dir() else ""
-                lines.append(f"{prefix}{connector}{child.name}{name_suffix}")
+#                 # Append string line visualization formatting parameters
+#                 name_suffix = "/" if child.is_dir() else ""
+#                 lines.append(f"{prefix}{connector}{child.name}{name_suffix}")
 
-                # Build structural meta out-of-band context maps
-                rel_path = str(child.relative_to(root_path))
-                entity_type = "directory" if child.is_dir() else "file"
+#                 # Build structural meta out-of-band context maps
+#                 rel_path = str(child.relative_to(root_path))
+#                 entity_type = "directory" if child.is_dir() else "file"
                 
-                metrics["dirs" if child.is_dir() else "files"] += 1
-                nodes_list.append(NodeEntry(
-                    relative_path=rel_path,
-                    name=child.name,
-                    type=entity_type,
-                    depth=depth
-                ))
+#                 metrics["dirs" if child.is_dir() else "files"] += 1
+#                 nodes_list.append(NodeEntry(
+#                     relative_path=rel_path,
+#                     name=child.name,
+#                     type=entity_type,
+#                     depth=depth
+#                 ))
 
-                if child.is_dir():
-                    next_extension = "    " if is_last else "│   "
-                    walk(child, prefix + next_extension, depth + 1)
+#                 if child.is_dir():
+#                     next_extension = "    " if is_last else "│   "
+#                     walk(child, prefix + next_extension, depth + 1)
 
-        walk(root_path, "", 1)
+#         walk(root_path, "", 1)
 
-        return DirectoryTreeResult(
-            root_path=str(root_path),
-            tree_string="\n".join(lines),
-            nodes=nodes_list,
-            total_directories=metrics["dirs"],
-            total_files=metrics["files"]
-        )
+#         return DirectoryTreeResult(
+#             root_path=str(root_path),
+#             tree_string="\n".join(lines),
+#             nodes=nodes_list,
+#             total_directories=metrics["dirs"],
+#             total_files=metrics["files"]
+#         )
 
-    except Exception as e:
-        return DirectoryTreeResult(root_path=root, tree_string="", error=str(e))
+#     except Exception as e:
+#         return DirectoryTreeResult(root_path=root, tree_string="", error=str(e))
     
-@register_extractor("get_directory_tree")
-@langfuse_observe
-def extract_directory_tree(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
+# @register_extractor("get_directory_tree")
+# @langfuse_observe
+# def extract_directory_tree(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
     """Intercepts visual tree compilation data to inject deep structural topology maps 
 
     directly inside out-of-band agent workspace caches.

@@ -62,7 +62,7 @@ def example_basic_usage():
     state: CodingAgentState = {
         "project_root": str(Path.cwd()),
         "messages": [
-            HumanMessage(content="need to implement an executor agent that can run tasks in parallel and handle dependencies")
+            HumanMessage(content="Implement session manager which takes care of each terminal session and its state and running planner and executor in loop")
         ],
         "summary": "",
         "goal": "",

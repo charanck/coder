@@ -8,8 +8,10 @@ import datetime
 from langchain_core.tools import tool
 import fnmatch
 from typing import Any, Dict, List
-from core.model.search import ProjectSummary
+from core.model.search import FindReferencesResult, ProjectSummary, Reference
+from core.client.lsp.manager import lsp_manager
 from core.model.state import CodingAgentState
+from core.service.tree_sitter import TreeSitterService
 from langchain.tools import tool
 from pydantic import BaseModel, Field
 from core.tools.registry import register_extractor
@@ -300,3 +302,141 @@ def extract_grep(result: Any, args: Dict[str, Any], state: CodingAgentState | No
         }
     }
 
+@tool
+@langfuse_observe
+def find_references(
+    symbol: str,
+    file_path: str,
+    max_matches: int = 250,
+    project_root: str | None = None,
+) -> FindReferencesResult:
+    """Search for all references of a specific symbol in a file and return structured results.
+
+    Args:
+        symbol (str): The symbol name to find references for.
+        file_path (str): The path to the file to search in.
+        max_matches (int): Maximum number of matches to return.
+        project_root (str | None): The project root directory. 
+    
+    Returns:
+        FindReferencesResult: Structured result with a list of references matching your code specification.
+    """
+    logger.debug(f"[find_references] Searching for references to '{symbol}' in {file_path}")
+    
+    try:
+        workspace_dir = project_root or str(Path(file_path).resolve().parent)
+        logger.debug(f"[find_references] Using workspace directory: {workspace_dir}")
+        
+        file_path_resolved = Path(file_path).resolve()
+        file_uri = file_path_resolved.as_uri()
+        
+        raw_result = None
+
+        # 1. Attempt LSP Resolution
+        lsp_client = lsp_manager.get_by_extension(file_path, workspace_dir)
+        if lsp_client:
+            logger.debug(f"[find_references] LSP client available, running lookup.")
+            try:
+                raw_result = lsp_client.find_references(file_uri, symbol)
+            except Exception as e:
+                logger.warning(f"[find_references] LSP lookup failed: {e}. Slipping to Tree-sitter.")
+
+        # 2. Fallback to Tree-Sitter
+        if raw_result is None:
+            logger.debug(f"[find_references] Using tree-sitter fallback path.")
+            file_ext = Path(file_path).suffix
+            ts_service = TreeSitterService(file_ext)
+            raw_result = ts_service.find_references(file_uri, symbol)
+        
+        if not raw_result or not hasattr(raw_result, 'references'):
+            return FindReferencesResult(references=[], count=0)
+
+        processed_references: List[Reference] = []
+        
+        # 3. Structural Parsing into strict Reference model instances
+        for ref in raw_result.references:
+            if len(processed_references) >= max_matches:
+                break
+                
+            # Read structural shapes dynamically safely across varied server formats
+            ref_uri = ref.get("uri") if isinstance(ref, dict) else getattr(ref, "uri", "")
+            ref_range = ref.get("range", {}) if isinstance(ref, dict) else getattr(ref, "range", None)
+            
+            start_pos = ref_range.get("start", {}) if isinstance(ref_range, dict) else getattr(ref_range, "start", None)
+            
+            # Map 0-indexed coordinates seamlessly over to requested 1-based format
+            s_line = (start_pos.get("line", 0) if isinstance(start_pos, dict) else getattr(start_pos, "line", 0)) + 1
+            s_col = (start_pos.get("character", 0) if isinstance(start_pos, dict) else getattr(start_pos, "character", 0)) + 1
+
+            # Fallback preview line evaluation
+            preview_text = ref.get("preview", "") if isinstance(ref, dict) else getattr(ref, "preview", f"// Symbol ref: {symbol}")
+
+            try:
+                clean_path = str(Path(ref_uri.replace("file://", "")).relative_to(Path(workspace_dir))) # type: ignore
+            except Exception:
+                clean_path = ref_uri.replace("file://", "") # type: ignore
+
+            processed_references.append(
+                Reference(
+                    file_path=clean_path,
+                    line=s_line,
+                    column=s_col,
+                    text=preview_text
+                )
+            )
+
+        return FindReferencesResult(
+            references=processed_references,
+            count=len(processed_references)
+        )
+        
+    except Exception as e:
+        logger.error(f"[find_references] Target exploration crash: {e}")
+        return FindReferencesResult(references=[], count=0)
+
+@register_extractor("find_references")
+@langfuse_observe
+def extract_find_references(result: Any, args: Dict[str, Any], state: CodingAgentState | None = None) -> Dict[str, Any]:
+    """Intercepts standard reference results using your strict Reference schema 
+
+    to register structural code touch points inside out-of-band state maps.
+    """
+    if not isinstance(result, FindReferencesResult) or not result.references:
+        return {}
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    # Pull target symbol from tool arguments context directly
+    target_symbol = args.get("symbol", "unknown")
+
+    search_entries = []
+    artifacts_update = {}
+    workspace_update = {}
+
+    for ref in result.references:
+        # Standardize state track maps with your new structure schema
+        search_entries.append({
+            "file_path": ref.file_path,
+            "line": ref.line,
+            "column": ref.column,
+            "text": ref.text.strip(),
+            "found_at": timestamp
+        })
+
+        # Register found reference targets as tracked code dependencies
+        artifacts_update[ref.file_path] = "read"
+
+        # Update lightweight structural visibility inside your workspace out-of-band
+        workspace_update[ref.file_path] = {
+            "exists": True,
+            "type": "file",
+            "last_referenced_symbol": target_symbol,
+            "last_validated": timestamp
+        }
+
+    return {
+        "searches_update": {
+            f"references:{target_symbol}": search_entries
+        },
+        "workspace_update": workspace_update,
+        "artifacts_update": artifacts_update
+    }

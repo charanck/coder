@@ -11,7 +11,7 @@ from core.client.lsp.client import LSPClient
 
 
 def test_initialize_server_sends_initialized_as_notification():
-    fake_process = SimpleNamespace(stdin=io.BytesIO(), stdout=io.BytesIO())
+    fake_process = SimpleNamespace(stdin=io.BytesIO(), stdout=io.BytesIO(), pid=12345)
 
     with patch("core.client.lsp.client.subprocess.Popen", return_value=fake_process), patch.object(
         LSPClient,

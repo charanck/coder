@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from config import get_lsp_server_command
+from core.model.search import FindReferencesResult, Reference
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,6 @@ def _resolve_server_command(server_command: list[str]) -> list[str]:
         return ["cmd.exe", "/c", executable, *server_command[1:]]
 
     return [executable, *server_command[1:]]
-
-
-
 
 class LSPClient:
     def __init__(self, server_command: list[str], root_uri: str):
@@ -238,3 +236,83 @@ class LSPClient:
         
         # Returns an array of symbols (Name, Kind: Function/Class, Range: Start/End Lines)
         return result
+    
+    def find_references(self, file_uri: str, symbol_name: str) -> FindReferencesResult:
+        """Queries the LSP for all references to a symbol in a file."""
+        logger.debug(f"[find_references] Requesting references for symbol '{symbol_name}' in {file_uri}")
+        
+        # First, find the actual position of the symbol in the file
+        symbol_line = 0
+        symbol_character = 0
+        try:
+            parsed = urlparse(file_uri)
+            file_path = parsed.path
+            
+            # On Windows, remove leading slash from /C:/path -> C:/path
+            if os.name == "nt" and len(file_path) > 2 and file_path[0] == "/" and file_path[2] == ":":
+                file_path = file_path[1:]
+            
+            logger.debug(f"[find_references] Reading file to find symbol position: {file_path}")
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            # Search for the symbol in the file
+            for i, line in enumerate(lines):
+                if symbol_name in line:
+                    # Find the first occurrence of the symbol in this line
+                    char_pos = line.find(symbol_name)
+                    if char_pos != -1:
+                        symbol_line = i
+                        symbol_character = char_pos
+                        logger.debug(f"[find_references] Found symbol '{symbol_name}' at line {symbol_line}, character {symbol_character}")
+                        break
+        except Exception as e:
+            logger.warning(f"[find_references] Could not determine symbol position: {e}. Using default position (0, 0)")
+        
+        response = self._send_request(
+            "textDocument/references",
+            {
+                "textDocument": {"uri": file_uri},
+                "position": {"line": symbol_line, "character": symbol_character},
+                "context": {"includeDeclaration": True},
+            },
+        )
+        logger.debug(f"[find_references] Response: {response}")
+        
+        result = response.get("result", [])
+        logger.info(f"[find_references] Found {len(result)} references for symbol '{symbol_name}'")
+        
+        references = []
+        for ref in result:
+            ref_uri = ref.get("uri", "")
+            ref_line = ref.get("range", {}).get("start", {}).get("line", 0)
+            ref_character = ref.get("range", {}).get("start", {}).get("character", 0)
+            
+            # Try to read the text around the reference
+            text = ""
+            try:
+                parsed = urlparse(ref_uri)
+                ref_path = parsed.path
+                
+                # On Windows, remove leading slash
+                if os.name == "nt" and len(ref_path) > 2 and ref_path[0] == "/" and ref_path[2] == ":":
+                    ref_path = ref_path[1:]
+                
+                with open(ref_path, "r", encoding="utf-8") as f:
+                    ref_lines = f.readlines()
+                    if 0 <= ref_line < len(ref_lines):
+                        text = ref_lines[ref_line].strip()
+                logger.debug(f"[find_references] Read text for reference at {ref_uri}:{ref_line}: {text[:50]}...")
+            except Exception as e:
+                logger.debug(f"[find_references] Could not read text for reference at {ref_uri}:{ref_line}: {e}")
+            
+            references.append(
+                Reference(
+                    file_path=ref_uri,
+                    line=ref_line + 1,  # Convert from LSP 0-based to 1-based
+                    column=ref_character + 1,  # Convert from LSP 0-based to 1-based
+                    text=text,
+                )
+            )
+        
+        return FindReferencesResult(references=references, count=len(references))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -76,7 +77,10 @@ def test_read_file_extractor_real(integration_workspace):
 
     file_path = integration_workspace / "src" / "sample.py"
     tool_output = read_file.invoke({"file_path": str(file_path)})
-    updates = extract_read_file(tool_output, {"file_path": str(file_path)})
+    
+    # Mock LSP manager to return no symbols so facts list will be empty
+    with patch.object(lsp_manager, "get_by_extension", return_value=None):
+        updates = extract_read_file(tool_output, {"file_path": str(file_path)})
 
     assert str(file_path) in updates["workspace_update"]
     assert updates["known_facts_update"] == []

@@ -100,8 +100,23 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
             continue
 
         try:
+            # Inject project_root from state if the tool supports it
+            tool_args_with_context = tool_args.copy()
+            
+            # Check if tool accepts project_root parameter
+            try:
+                if hasattr(tool, "args_schema") and tool.args_schema:
+                    schema = tool.args_schema
+                    # Handle both Pydantic models and dict-based schemas
+                    schema_params = getattr(schema, "__fields__", None) or getattr(schema, "properties", {})
+                    if "project_root" in schema_params:
+                        project_root = state.get("project_root")
+                        tool_args_with_context["project_root"] = project_root
+            except (AttributeError, TypeError):
+                pass
+            
             # Execute the tool synchronously (swap with await tool.ainvoke if working with async graphs)
-            result = tool.invoke(tool_args)
+            result = tool.invoke(tool_args_with_context)
             
             # Formulating output message (str convert ensure validation handles cleanly)
             content = str(result.content) if hasattr(result, "content") else str(result)
