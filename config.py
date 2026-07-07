@@ -79,16 +79,42 @@ LSP_SERVER_COMMANDS = {
 
 PROJECT_LANGUAGE_MAP = {
     ".py": "Python",
+    "py": "Python",
     ".ts": "TypeScript",
+    "ts": "TypeScript",
     ".js": "JavaScript",
+    "js": "JavaScript",
     ".go": "Go",
+    "go": "Go",
     ".rs": "Rust",
+    "rs": "Rust",
     ".cpp": "C++",
+    "cpp": "C++",
     ".c": "C",
+    "c": "C",
     ".java": "Java",
+    "java": "Java",
     ".rb": "Ruby",
+    "rb": "Ruby",
     ".php": "PHP",
+    "php": "PHP",
     ".cs": "C#",
+    "cs": "C#",
+}
+
+# Map display language names to tree-sitter-languages identifiers
+TREE_SITTER_LANGUAGE_MAP = {
+    "Python": "python",
+    "TypeScript": "typescript",
+    "JavaScript": "javascript",
+    "Go": "go",
+    "Rust": "rust",
+    "C++": "cpp",
+    "C": "c",
+    "Java": "java",
+    "Ruby": "ruby",
+    "PHP": "php",
+    "C#": "c_sharp",
 }
 
 PROJECT_FRAMEWORK_FILES = {

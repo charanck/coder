@@ -14,8 +14,6 @@ from core.client.lsp.manager import lsp_manager
 from core.service.tree_sitter import TreeSitterService
 from core.common.tracing import langfuse_observe
 from pydantic import BaseModel, Field
-
-from config import DEFAULT_IGNORE_PATTERNS
 from core.tools.search import should_ignore
 
 logger = logging.getLogger(__name__)
@@ -462,7 +460,8 @@ class FileListResult(BaseModel):
 @langfuse_observe
 def list_files(
     directory_path: str,
-    recursive: bool = False,
+    recursive: bool = True,
+    max_depth: int = 3,
     include_hidden: bool = False,
     ignore_patterns: Optional[list[str]] = None,
     max_results: int = 400
@@ -473,12 +472,13 @@ def list_files(
 
     Args:
         directory_path (str): The path to the directory to list.
-        recursive (bool): Whether to list files recursively. Defaults to False.
+        recursive (bool): Whether to list files recursively. Defaults to True.
+        max_depth (int): Maximum depth of recursion. Defaults to 3.
         include_hidden (bool): Whether to include hidden files and directories. Defaults to False.
         ignore_patterns (Optional[list[str]]): List of glob patterns to ignore. Defaults to None.
         max_results (int): Maximum number of results to return before truncation. Defaults to 400.
     """
-    logger.debug(f"Listing files in {directory_path}, recursive={recursive}, max_results={max_results}")
+    logger.debug(f"Listing files in {directory_path}, recursive={recursive}, max_depth={max_depth}, max_results={max_results}")
     
     try:
         root = Path(directory_path).resolve()
@@ -496,6 +496,12 @@ def list_files(
 
         if recursive:
             for current_root, dirs, files in os.walk(root):
+                # Calculate the current depth
+                rel_root = Path(os.path.relpath(current_root, root))
+                current_depth = len(rel_root.parts) if rel_root != Path(".") else 0
+                if current_depth >= max_depth:
+                    dirs[:] = []  # Stop descending into subdirectories
+
                 # Apply in-place filtering rules for safety controls
                 dirs[:] = sorted([d for d in dirs if not should_ignore(d, include_hidden, patterns)])
                 files = sorted([f for f in files if not should_ignore(f, include_hidden, patterns)])
