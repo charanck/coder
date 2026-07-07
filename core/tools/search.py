@@ -4,7 +4,6 @@ import os
 import collections
 import logging
 from pathlib import Path
-import datetime
 from langchain_core.tools import tool
 import fnmatch
 from typing import Any, Dict, List
@@ -12,7 +11,6 @@ from core.model.search import FindReferencesResult, ProjectSummary, Reference
 from core.client.lsp.manager import lsp_manager
 from core.model.state import CodingAgentState
 from core.service.tree_sitter import TreeSitterService
-from langchain.tools import tool
 from pydantic import BaseModel, Field
 from core.tools.registry import register_extractor
 from config import PROJECT_FRAMEWORK_FILES, PROJECT_LANGUAGE_MAP, DEFAULT_IGNORE_PATTERNS
@@ -335,7 +333,7 @@ def find_references(
         # 1. Attempt LSP Resolution
         lsp_client = lsp_manager.get_by_extension(file_path, workspace_dir)
         if lsp_client:
-            logger.debug(f"[find_references] LSP client available, running lookup.")
+            logger.debug("[find_references] LSP client available, running lookup.")
             try:
                 raw_result = lsp_client.find_references(file_uri, symbol)
             except Exception as e:
@@ -343,7 +341,7 @@ def find_references(
 
         # 2. Fallback to Tree-Sitter
         if raw_result is None:
-            logger.debug(f"[find_references] Using tree-sitter fallback path.")
+            logger.debug("[find_references] Using tree-sitter fallback path.")
             file_ext = Path(file_path).suffix
             ts_service = TreeSitterService(file_ext)
             raw_result = ts_service.find_references(file_uri, symbol)

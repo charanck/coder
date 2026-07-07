@@ -35,7 +35,7 @@ class LSPFactory:
             server_command=_resolve_server_command(server_command),
             root_uri=Path(workspace).resolve().as_uri(),
         )
-        logger.info(f"[LSPFactory.create] LSP client created successfully")
+        logger.info("[LSPFactory.create] LSP client created successfully")
         return client
 
 
@@ -129,7 +129,7 @@ class LSPClient:
         while True:
             line = self.process.stdout.readline()
             if not line:
-                logger.debug(f"[_read_message] EOF reached on stdout")
+                logger.debug("[_read_message] EOF reached on stdout")
                 return {}
 
             if line in (b"\r\n", b"\n", b""):
@@ -183,7 +183,7 @@ class LSPClient:
         logger.debug(f"[LSPClient._initialize_server] Initialize response: {response}")
         
         self._send_notification("initialized", {})
-        logger.info(f"[LSPClient._initialize_server] Server initialized successfully")
+        logger.info("[LSPClient._initialize_server] Server initialized successfully")
 
     def extract_document_symbols(self, file_uri: str) -> list[dict[str, Any]]:
         """Queries the LSP for a complete, precise structural map of a file."""
@@ -217,7 +217,7 @@ class LSPClient:
                     }
                 }
             )
-            logger.debug(f"[extract_document_symbols] Document opened, waiting for indexing...")
+            logger.debug("[extract_document_symbols] Document opened, waiting for indexing...")
             
             # Give the LSP server a moment to index the document
             time.sleep(0.5)

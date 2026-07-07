@@ -2,9 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from core.service.tree_sitter import TreeSitterService
 

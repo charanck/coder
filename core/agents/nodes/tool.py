@@ -145,7 +145,7 @@ def tool_node(state: CodingAgentState, config: RunnableConfig) -> dict[str, Any]
                         known_facts.extend(updates["known_facts_update"])
                     logger.debug(f"Extracted metadata from tool '{tool_name}' output")
                         
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Metadata extraction failed for tool '{tool_name}'")
             save_tool_cache(state, tool_name, tool_args, result)
             successful = True

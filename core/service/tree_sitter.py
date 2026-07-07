@@ -83,7 +83,7 @@ class TreeSitterService:
             
             # Parse the file into an AST using parse_bytes for accurate byte offsets
             tree = self.parser.parse_bytes(file_bytes)
-            logger.debug(f"[extract_document_symbols] Successfully parsed file, extracting symbols...")
+            logger.debug("[extract_document_symbols] Successfully parsed file, extracting symbols...")
             
             # Extract symbols from the AST
             symbols = self._extract_symbols_from_node(tree.root_node(), file_bytes)
@@ -206,7 +206,7 @@ class TreeSitterService:
                     # Stop at assignment operator - we only want left side
                     break
             
-            logger.debug(f"[_extract_assignment_target] No target found in assignment node")
+            logger.debug("[_extract_assignment_target] No target found in assignment node")
         except Exception as e:
             logger.debug(f"[_extract_assignment_target] Error extracting target: {e}")
         
@@ -230,7 +230,7 @@ class TreeSitterService:
                     # Stop at import keyword - we only want the module part
                     break
             
-            logger.debug(f"[_extract_import_module] No module found in import statement")
+            logger.debug("[_extract_import_module] No module found in import statement")
         except Exception as e:
             logger.debug(f"[_extract_import_module] Error extracting module: {e}")
         
@@ -265,7 +265,7 @@ class TreeSitterService:
             
             # Parse the file into an AST using parse_bytes for accurate byte offsets
             tree = self.parser.parse_bytes(file_bytes)
-            logger.debug(f"[find_references] Successfully parsed file, searching for references...")
+            logger.debug("[find_references] Successfully parsed file, searching for references...")
             
             # Find all references by traversing the AST
             references = []

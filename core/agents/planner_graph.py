@@ -7,9 +7,7 @@ replacing the previous agent-based implementation while maintaining full compati
 
 from __future__ import annotations
 from typing import Any, Literal, cast
-from pathlib import Path
 import logging
-import os
 import uuid
 
 from langgraph.graph import StateGraph, START, END
@@ -20,11 +18,9 @@ from langchain_core.runnables import RunnableConfig
 
 from core.agents.nodes.summarizer import summarizer_node
 from core.model.state import CodingAgentState
-from core.model.planner import ImplementationPlan
 from core.agents.nodes.prepare_planner_context import prepare_planner_context_node
 from core.agents.nodes.llm_call import llm_call_node
 from core.agents.nodes.tool import tool_node
-from core.agents.nodes.util import tools_from_runnable_config
 from core.common.tracing import langfuse_observe
 
 logger = logging.getLogger(__name__)

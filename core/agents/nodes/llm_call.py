@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, cast
+from typing import Any
 import logging
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
