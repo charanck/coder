@@ -20,9 +20,9 @@
 - [X] Implementation for LSP integration for code understanding and analysis
 - [X] Implementation for extractors for all the tools used in the coding agent
 - [X] Implementation for conversation summarizer
-- [ ] Clean up the code and fix issue for the tree-sitter implementation
-- [ ] Test and fix find_references tool and its extractor
-- [ ] Implement units tests for the implementation done so far
+- [X] Clean up the code and fix issue for the tree-sitter implementation
+- [X] Test and fix find_references tool and its extractor
+- [X] Implement units tests for the implementation done so far
 - [ ] Implementing a TUI for user interaction with the coding agent
 - [X] Plan langgraph architecture for planner agent
 - [ ] Plan design for session manager
