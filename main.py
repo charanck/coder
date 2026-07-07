@@ -62,7 +62,7 @@ def example_basic_usage():
     state: CodingAgentState = {
         "project_root": str(Path.cwd()),
         "messages": [
-            HumanMessage(content="Implement session manager which takes care of each terminal session and its state and running planner and executor in loop")
+            HumanMessage(content="Find all references to the 'find_references' function in the codebase, summarize where it's used, extract key facts about its usage patterns, and provide recommendations for optimization")
         ],
         "summary": "",
         "goal": "",

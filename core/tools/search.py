@@ -300,6 +300,86 @@ def extract_grep(result: Any, args: Dict[str, Any], state: CodingAgentState | No
         }
     }
 
+def _get_project_source_files(workspace_path: Path, max_depth: int = 5) -> List[Path]:
+    """Get all source files in a project directory.
+    
+    Scans project for files matching supported language extensions and respects ignore patterns.
+    
+    Args:
+        workspace_path: Root path of project to scan
+        max_depth: Maximum directory depth to traverse
+        
+    Returns:
+        List of Path objects for all discovered source files
+    """
+    source_files = []
+    # Get extensions from config (dynamically includes all supported languages)
+    source_extensions = set(
+        ext if ext.startswith(".") else f".{ext}" 
+        for ext in PROJECT_LANGUAGE_MAP.keys()
+    )
+    
+    logger.debug(f"[_get_project_source_files] Scanning {workspace_path} for {len(source_extensions)} source extensions")
+    
+    root_depth = len(workspace_path.parts)
+    for current_root, dirs, files in workspace_path.walk():
+        current_path = Path(current_root)
+        current_depth = len(current_path.parts) - root_depth
+        
+        # Respect max depth
+        if current_depth >= max_depth:
+            dirs[:] = []
+            continue
+        
+        # Filter out ignored directories
+        dirs[:] = sorted([
+            d for d in dirs 
+            if not should_ignore(d, include_hidden=False, custom_ignores=None)
+        ])
+        
+        # Filter files by extension
+        for file in files:
+            if should_ignore(file, include_hidden=False, custom_ignores=None):
+                continue
+            
+            file_ext = Path(file).suffix.lower()
+            if file_ext in source_extensions:
+                source_files.append(Path(current_root) / file)
+    
+    logger.debug(f"[_get_project_source_files] Found {len(source_files)} source files")
+    return source_files
+
+
+def _search_references_in_file(
+    file_path: Path, 
+    symbol: str, 
+    workspace_dir: str
+) -> List[Reference]:
+    """Search for symbol references in a single file using TreeSitter.
+    
+    Args:
+        file_path: Path to file to search
+        symbol: Symbol name to find references for
+        workspace_dir: Project root for relative path conversion
+        
+    Returns:
+        List of Reference objects found in the file
+    """
+    try:
+        file_ext = file_path.suffix
+        ts_service = TreeSitterService(file_ext)
+        file_uri = file_path.as_uri()
+        
+        result = ts_service.find_references(file_uri, symbol)
+        if result and hasattr(result, 'references') and result.references:
+            logger.debug(f"[_search_references_in_file] Found {len(result.references)} refs in {file_path.name}")
+            return result.references
+    except Exception as e:
+        logger.debug(f"[_search_references_in_file] Error searching {file_path.name}: {e}")
+    
+    return []
+
+
 @tool
 @langfuse_observe
 def find_references(
@@ -308,88 +388,110 @@ def find_references(
     max_matches: int = 250,
     project_root: str | None = None,
 ) -> FindReferencesResult:
-    """Search for all references of a specific symbol in a file and return structured results.
+    """
+    Find all code references to a symbol across the project.
+
+    Use this tool when you need to discover where a function, method, class, variable,
+    constant, interface, type, or other symbol is referenced before making code changes,
+    refactoring, or understanding code flow.
+
+    This tool searches the entire project for references by:
+    1. Using Language Server Protocol (LSP) for accurate semantic references if available
+    2. Falling back to tree-sitter based search across all project files
 
     Args:
-        symbol (str): The symbol name to find references for.
-        file_path (str): The path to the file to search in.
-        max_matches (int): Maximum number of matches to return.
-        project_root (str | None): The project root directory. 
-    
+        symbol: Name of the symbol to search for.
+        file_path: Path to a file containing the symbol definition (used as reference for LSP).
+        max_matches: Maximum number of references to return.
+        project_root: Project root directory. If omitted, it is inferred from the file path.
+
     Returns:
-        FindReferencesResult: Structured result with a list of references matching your code specification.
+        FindReferencesResult containing all discovered references with their locations.
     """
-    logger.debug(f"[find_references] Searching for references to '{symbol}' in {file_path}")
+    logger.info(f"[find_references] Searching for '{symbol}' across project")
     
     try:
         workspace_dir = project_root or str(Path(file_path).resolve().parent)
-        logger.debug(f"[find_references] Using workspace directory: {workspace_dir}")
+        workspace_path = Path(workspace_dir)
         
         file_path_resolved = Path(file_path).resolve()
         file_uri = file_path_resolved.as_uri()
         
-        raw_result = None
+        all_references: List[Reference] = []
 
-        # 1. Attempt LSP Resolution
+        # Step 1: Try LSP first (project-wide semantic search)
+        logger.debug("[find_references] Attempting LSP-based search")
         lsp_client = lsp_manager.get_by_extension(file_path, workspace_dir)
         if lsp_client:
-            logger.debug("[find_references] LSP client available, running lookup.")
             try:
-                raw_result = lsp_client.find_references(file_uri, symbol)
+                result = lsp_client.find_references(file_uri, symbol)
+                if result and hasattr(result, 'references'):
+                    all_references.extend(result.references)
+                    logger.info(f"[find_references] LSP found {len(all_references)} references")
             except Exception as e:
-                logger.warning(f"[find_references] LSP lookup failed: {e}. Slipping to Tree-sitter.")
+                logger.warning(f"[find_references] LSP lookup failed: {e}. Falling back to TreeSitter scanning.")
 
-        # 2. Fallback to Tree-Sitter
-        if raw_result is None:
-            logger.debug("[find_references] Using tree-sitter fallback path.")
-            file_ext = Path(file_path).suffix
-            ts_service = TreeSitterService(file_ext)
-            raw_result = ts_service.find_references(file_uri, symbol)
+        # Step 2: Fallback to TreeSitter scanning across project files
+        if not all_references:
+            logger.debug("[find_references] Starting TreeSitter project-wide scan")
+            source_files = _get_project_source_files(workspace_path)
+            
+            for src_file in source_files:
+                if len(all_references) >= max_matches:
+                    break
+                
+                refs = _search_references_in_file(src_file, symbol, workspace_dir)
+                all_references.extend(refs)
         
-        if not raw_result or not hasattr(raw_result, 'references'):
-            return FindReferencesResult(references=[], count=0)
-
+        # Step 3: Process and deduplicate references
         processed_references: List[Reference] = []
+        seen = set()
         
-        # 3. Structural Parsing into strict Reference model instances
-        for ref in raw_result.references:
+        for ref in all_references:
             if len(processed_references) >= max_matches:
                 break
+            
+            # Handle Reference objects directly (from TreeSitter)
+            if isinstance(ref, Reference):
+                key = (ref.file_path, ref.line, ref.column)
+                if key not in seen:
+                    seen.add(key)
+                    processed_references.append(ref)
+            else:
+                # Handle dict-based references from LSP
+                ref_uri = ref.get("uri", "") if isinstance(ref, dict) else getattr(ref, "uri", "")
+                ref_range = ref.get("range", {}) if isinstance(ref, dict) else getattr(ref, "range", {})
+                start_pos = ref_range.get("start", {}) if isinstance(ref_range, dict) else getattr(ref_range, "start", {})
                 
-            # Read structural shapes dynamically safely across varied server formats
-            ref_uri = ref.get("uri") if isinstance(ref, dict) else getattr(ref, "uri", "")
-            ref_range = ref.get("range", {}) if isinstance(ref, dict) else getattr(ref, "range", None)
-            
-            start_pos = ref_range.get("start", {}) if isinstance(ref_range, dict) else getattr(ref_range, "start", None)
-            
-            # Map 0-indexed coordinates seamlessly over to requested 1-based format
-            s_line = (start_pos.get("line", 0) if isinstance(start_pos, dict) else getattr(start_pos, "line", 0)) + 1
-            s_col = (start_pos.get("character", 0) if isinstance(start_pos, dict) else getattr(start_pos, "character", 0)) + 1
+                s_line = (start_pos.get("line", 0) if isinstance(start_pos, dict) else getattr(start_pos, "line", 0)) + 1
+                s_col = (start_pos.get("character", 0) if isinstance(start_pos, dict) else getattr(start_pos, "character", 0)) + 1
+                preview_text = ref.get("preview", "") if isinstance(ref, dict) else getattr(ref, "preview", "")
 
-            # Fallback preview line evaluation
-            preview_text = ref.get("preview", "") if isinstance(ref, dict) else getattr(ref, "preview", f"// Symbol ref: {symbol}")
+                try:
+                    clean_path = str(Path(ref_uri.replace("file://", "")).relative_to(workspace_path))
+                except Exception:
+                    clean_path = ref_uri.replace("file://", "")
 
-            try:
-                clean_path = str(Path(ref_uri.replace("file://", "")).relative_to(Path(workspace_dir))) # type: ignore
-            except Exception:
-                clean_path = ref_uri.replace("file://", "") # type: ignore
+                key = (clean_path, s_line, s_col)
+                if key not in seen:
+                    seen.add(key)
+                    processed_references.append(
+                        Reference(
+                            file_path=clean_path,
+                            line=s_line,
+                            column=s_col,
+                            text=preview_text
+                        )
+                    )
 
-            processed_references.append(
-                Reference(
-                    file_path=clean_path,
-                    line=s_line,
-                    column=s_col,
-                    text=preview_text
-                )
-            )
-
+        logger.info(f"[find_references] Complete: {len(processed_references)} references found (deduplicated)")
         return FindReferencesResult(
             references=processed_references,
             count=len(processed_references)
         )
         
     except Exception as e:
-        logger.error(f"[find_references] Target exploration crash: {e}")
+        logger.error(f"[find_references] Search failed: {e}", exc_info=True)
         return FindReferencesResult(references=[], count=0)
 
 @register_extractor("find_references")
