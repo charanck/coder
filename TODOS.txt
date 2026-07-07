@@ -16,19 +16,10 @@
 
 
 ----------------TODOS--------------------------
-- [X] Make different Nodes and its extractors testable and implement unit tests for them
-- [X] Implementation for LSP integration for code understanding and analysis
-- [X] Implementation for extractors for all the tools used in the coding agent
-- [X] Implementation for conversation summarizer
-- [X] Clean up the code and fix issue for the tree-sitter implementation
-- [X] Test and fix find_references tool and its extractor
-- [X] Implement units tests for the implementation done so far
 - [ ] Implementing a TUI for user interaction with the coding agent
-- [X] Plan langgraph architecture for planner agent
 - [ ] Plan design for session manager
 - [ ] Plan design for workspace semantic indexing and search
-- [X] Design state model for planner and executor agent
-- [X] Implement llm based file parser for code understanding and analysis as fallback when lsp is not available for a given file extension
+
 
 
 ------------------COMPONENTS-------------------
